@@ -34,6 +34,7 @@ You can also create an external configuration file that will contain all setting
 ```
 makepkg -si
 ```
+**This will install to `/opt/wine-osu`, as it is not recommended to use this as your main wine installation. Therefore, you must run all wine binaries directly from `/opt/wine-osu/bin/`**
 
 ### For other distros (make sure to check the [wiki page](https://github.com/Tk-Glitch/PKGBUILDS/wiki/wine-tkg-git)) :
 
