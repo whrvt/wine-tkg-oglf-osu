@@ -21,9 +21,9 @@ git clone https://github.com/whrvt/wine-tkg-oglf-osu.git
 
 ## Configuration/customization :
 
-If you want to customize the patches and features of your builds, you can find basic settings in [config/basic.cfg](https://github.com/Frogging-Family/wine-tkg-git/blob/master/wine-tkg-git/customization.cfg) and advanced settings in [config/advanced.cfg](https://github.com/Frogging-Family/wine-tkg-git/blob/master/wine-tkg-git/wine-tkg-profiles/advanced-customization.cfg).
+If you want to customize the patches and features of your builds, you can find basic settings in [config/basic.cfg](https://github.com/whrvt/wine-tkg-oglf-osu/blob/master/config/basic.cfg) and advanced settings in [config/advanced.cfg](https://github.com/whrvt/wine-tkg-oglf-osu/blob/master/config/advanced.cfg).
 
-You can also create an external configuration file that will contain all settings in a centralized way and survive repo updates. A sample file for this can be found [here](https://github.com/Frogging-Family/wine-tkg-git/blob/master/wine-tkg-git/wine-tkg-profiles/sample-external-config.cfg). The default path for this file is `~/.config/frogminer/wine-tkg.cfg` and can be changed in `wine-tkg-profiles/advanced-customization.cfg` with the `_EXT_CONFIG_PATH` option.
+You can also create an external configuration file that will contain all settings in a centralized way and survive repo updates. A sample file for this can be found [here](https://github.com/whrvt/wine-tkg-oglf-osu/blob/master/wine-tkg-profiles/sample-external-config.cfg). The default path for this file is `~/.config/frogminer/wine-tkg.cfg` and can be changed in [config/advanced.cfg](https://github.com/whrvt/wine-tkg-oglf-osu/blob/master/config/advanced.cfg) with the `_EXT_CONFIG_PATH` option.
 
 
 ## Building :
@@ -44,6 +44,22 @@ makepkg -si
 ./non-makepkg-build.sh
 ```
 **Your build will be found in the `PKGBUILD/wine-tkg-git/non-makepkg-builds` dir (independently of the chosen configuration)**
+
+## Notes on built packages :
+
+Possibly dependant on the compilation flags (found in [config/advanced.cfg](https://github.com/whrvt/wine-tkg-oglf-osu/blob/master/config/advanced.cfg)), the resulting wine binary may only work with a reduced subset of features in certain applications.
+
+For example: when running osu! stable under a WINEPREFIX which is missing `gdiplus` or `gdiplus_winxp`, wine's built-in version of gdiplus may crash when rendering certain areas of text, like the friends list or skins list. Furthermore, at least on some systems, `dotnet48` may not be usable, while `dotnet40` works fine.
+
+On my system, this is an example of a fully working WINEPREFIX (to be used for playing osu! stable) created with [winetricks](https://github.com/Winetricks/winetricks):
+
+```
+WINE_DISABLE_FAST_SYNC=1 WINEARCH=win64 WINEPREFIX=<PREFIX_DIRECTORY> WINE=/opt/wine-osu/bin/wine winetricks -q nocrashdialog dotnet40 cjkfonts meiryo gdiplus_winxp sound=pulse fontsmooth=rgb win2k3
+```
+
+WINEARCH=win32 is untested.
+
+Some useful environment variables for the resulting wine binary can be found in [wine.install](https://github.com/whrvt/wine-tkg-oglf-osu/blob/master/wine.install).
 
 ## Credit :
 
