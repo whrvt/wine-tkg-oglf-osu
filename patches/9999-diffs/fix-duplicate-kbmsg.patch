@@ -1,0 +1,26 @@
+https://bugs.winehq.org/show_bug.cgi?id=50067
+
+diff --git a/dlls/win32u/message.c b/dlls/win32u/message.c
+index 11111111111..11111111111 100644
+--- a/dlls/win32u/message.c
++++ b/dlls/win32u/message.c
+@@ -2354,6 +2354,7 @@ static BOOL process_keyboard_message( MSG *msg, UINT hw_id, HWND hwnd_filter,
+ 
+     if (remove)
+     {
++        accept_hardware_message( hw_id );
+         if((msg->message == WM_KEYDOWN) &&
+            (msg->hwnd != get_desktop_window()))
+         {
+@@ -2383,10 +2384,9 @@ static BOOL process_keyboard_message( MSG *msg, UINT hw_id, HWND hwnd_filter,
+     {
+         /* skip this message */
+         call_hooks( WH_CBT, HCBT_KEYSKIPPED, LOWORD(msg->wParam), msg->lParam, 0 );
+-        accept_hardware_message( hw_id );
++        if (!remove) accept_hardware_message( hw_id );
+         return FALSE;
+     }
+-    if (remove) accept_hardware_message( hw_id );
+     msg->pt = point_phys_to_win_dpi( msg->hwnd, msg->pt );
+ 
+     if (remove && msg->message == WM_KEYDOWN)

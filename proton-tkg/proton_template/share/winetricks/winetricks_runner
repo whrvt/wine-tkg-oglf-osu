@@ -1,3 +1,0 @@
-#!/bin/bash
-
-LD_PRELOAD="" PATH="${PATH//\/steam-runtime\/amd64\/usr\/bin/}" WINEPREFIX=$WINEPREFIX winetricks

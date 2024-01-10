@@ -1,6 +1,0 @@
-#!/bin/bash
-
-	# Launch with dedicated gpu desktop entry patch
-	if [ "$_launch_with_dedicated_gpu" = "true" ]; then
-	  _patchname='launch-with-dedicated-gpu-desktop-entry.patch' && _patchmsg="Applied launch with dedicated gpu desktop entry patch" && nonuser_patcher
-	fi

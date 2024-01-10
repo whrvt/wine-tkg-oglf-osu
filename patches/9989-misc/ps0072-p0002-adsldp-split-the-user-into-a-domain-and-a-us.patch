@@ -1,0 +1,77 @@
+From: Damjan Jovanovic <damjan.jov@gmail.com>
+Subject: [PATCH v3 2/7] adsldp: split the user into a domain and a username, where possible
+Message-Id: <CAJm2B-m0DB+znngrTh=TrcEi_h0fhZkMXoxT0=PeNGLd_B015Q@mail.gmail.com>
+Date: Thu, 18 Feb 2021 18:48:39 +0200
+
+Extensive tests show that, for the secure authentication case,
+adsldp's IADsOpenDSObject::OpenDSObject() and wldap32's ldap_bind_s()
+both agree on success/failure and generate equivalent network packets,
+only when IADsOpenDSObject::OpenDSObject() splits up "domain\user"
+style usernames into SEC_WINNT_AUTH_IDENTITY_W's Domain and User, while
+ldap_bind_s() receives them already split up like that, regardless of
+the domain's format (domain, domain.local) or even correctness.
+
+Wine-Bug: https://bugs.winehq.org/show_bug.cgi?id=50634
+Signed-off-by: Damjan Jovanovic <damjan.jov@gmail.com>
+---
+ dlls/adsldp/adsldp.c | 36 +++++++++++++++++++++++++++++++-----
+ 1 file changed, 31 insertions(+), 5 deletions(-)
+
+diff --git a/dlls/adsldp/adsldp.c b/dlls/adsldp/adsldp.c
+index 11111111111..11111111111 100644
+--- a/dlls/adsldp/adsldp.c
++++ b/dlls/adsldp/adsldp.c
+@@ -1030,12 +1030,33 @@ static HRESULT WINAPI openobj_OpenDSObject(IADsOpenDSObject *iface, BSTR path, B
+         if (flags & ADS_SECURE_AUTHENTICATION)
+         {
+             SEC_WINNT_AUTH_IDENTITY_W id;
++            BSTR custom_domain = NULL;
++            BSTR custom_user = NULL;
++            BSTR domain = NULL;
++            BSTR u = NULL;
+ 
++            domain = host;
++            u = user;
++            if (user)
++            {
++                WCHAR *backslash;
++                backslash = wcschr(user, '\\');
++                if (backslash)
++                {
++                    domain = custom_domain = SysAllocStringLen(user, backslash - user);
++                    u = custom_user = SysAllocString(backslash + 1);
++                    if (!domain || !u)
++                    {
++                        hr = HRESULT_FROM_WIN32(GetLastError());
++                        goto sec_end;
++                    }
++                }
++            }
+             id.Flags = SEC_WINNT_AUTH_IDENTITY_UNICODE;
+-            id.Domain = (unsigned short *)host;
+-            id.DomainLength = wcslen(host);
+-            id.User = (unsigned short *)user;
+-            id.UserLength = user ? wcslen(user) : 0;
++            id.Domain = (unsigned short *)domain;
++            id.DomainLength = wcslen(domain);
++            id.User = (unsigned short *)u;
++            id.UserLength = u ? wcslen(u) : 0;
+             id.Password = (unsigned short *)password;
+             id.PasswordLength = password ? wcslen(password) : 0;
+ 
+@@ -1045,8 +1066,13 @@ static HRESULT WINAPI openobj_OpenDSObject(IADsOpenDSObject *iface, BSTR path, B
+                 TRACE("ldap_bind_sW error %#lx\n", err);
+                 hr = HRESULT_FROM_WIN32(map_ldap_error(err));
+                 ldap_unbind(ld);
+-                goto fail;
+             }
++
++        sec_end:
++            SysFreeString(custom_domain);
++            SysFreeString(custom_user);
++            if (FAILED(hr))
++                goto fail;
+         }
+         else
+         {
+

@@ -1,0 +1,76 @@
+From: Joshua Ashton <joshua@froggi.es>
+Subject: [PATCH] winebrowser: Avoid recursively calling winebrowser forever
+Message-Id: <17020c9c518.c572348f414541.4167823035402002610@froggi.es>
+Date: Fri, 07 Feb 2020 17:54:19 +0000
+
+
+Signed-off-by: Joshua Ashton <joshua@froggi.es>
+---
+ programs/winebrowser/main.c | 40 +++++++++++++++++++++++++++----------
+ 1 file changed, 29 insertions(+), 11 deletions(-)
+
+diff --git a/programs/winebrowser/main.c b/programs/winebrowser/main.c
+index 11111111111..11111111111 100644
+--- a/programs/winebrowser/main.c
++++ b/programs/winebrowser/main.c
+@@ -63,31 +63,49 @@ static char *strdup_unixcp( const WCHAR *str )
+     return ret;
+ }
+ 
++/* forbidden apps that we will test for and never launch 
++ * because they could cause us to create new processes indefinitely */
++static const WCHAR forbidden_apps[] =
++    {'w','i','n','e','b','r','o','w','s','e','r',0,0};
++
+ /* try to launch a unix app from a comma separated string of app names */
+ static int launch_app( const WCHAR *candidates, const WCHAR *argv1 )
+ {
+     char *cmdline;
+     int i, count;
+     char **argv_new;
++    const WCHAR* forbidden_app = forbidden_apps;
+ 
+     if (!(cmdline = strdup_unixcp( argv1 ))) return 1;
+ 
+     while (*candidates)
+     {
+-        WCHAR **args = CommandLineToArgvW( candidates, &count );
++        /* test for forbidden apps */
++        BOOL valid_candidate = TRUE;
++        while (*forbidden_app) {
++            if (wcsstr(candidates, forbidden_app))
++                valid_candidate = FALSE;
+ 
+-        if (!(argv_new = malloc( (count + 2) * sizeof(*argv_new) ))) break;
+-        for (i = 0; i < count; i++) argv_new[i] = strdup_unixcp( args[i] );
+-        argv_new[count] = cmdline;
+-        argv_new[count + 1] = NULL;
++            forbidden_app += lstrlenW( forbidden_app ) + 1;  /* grab the next app */
++        }
+ 
+-        TRACE( "Trying" );
+-        for (i = 0; i <= count; i++) TRACE( " %s", wine_dbgstr_a( argv_new[i] ));
+-        TRACE( "\n" );
++        if (valid_candidate)
++        {
++            WCHAR **args = CommandLineToArgvW( candidates, &count );
+ 
+-        if (!__wine_unix_spawnvp( argv_new, FALSE )) ExitProcess(0);
+-        for (i = 0; i < count; i++) free( argv_new[i] );
+-        free( argv_new );
++            if (!(argv_new = malloc( (count + 2) * sizeof(*argv_new) ))) break;
++            for (i = 0; i < count; i++) argv_new[i] = strdup_unixcp( args[i] );
++            argv_new[count] = cmdline;
++            argv_new[count + 1] = NULL;
++
++            TRACE( "Trying" );
++            for (i = 0; i <= count; i++) TRACE( " %s", wine_dbgstr_a( argv_new[i] ));
++            TRACE( "\n" );
++
++            if (!__wine_unix_spawnvp( argv_new, FALSE )) ExitProcess(0);
++            for (i = 0; i < count; i++) free( argv_new[i] );
++            free( argv_new );
++        }
+         candidates += lstrlenW( candidates ) + 1;  /* grab the next app */
+     }
+     WINE_ERR( "could not find a suitable app to open %s\n", debugstr_w( argv1 ));

@@ -1,0 +1,40 @@
+From: "Alex Xu (Hello71)" <alex_y_xu@yahoo.ca>
+Subject: [PATCH] configure: add rpath for Unix libs
+Message-Id: <20220119174135.6318-1-alex_y_xu@yahoo.ca>
+Date: Wed, 19 Jan 2022 12:41:35 -0500
+References: <20220119174135.6318-1-alex_y_xu.ref@yahoo.ca>
+
+wine expects that dlopen("/usr/lib/i386-windows/ntdll.so");
+dlopen("/usr/lib/i386-windows/ws2_32.so") succeeds. this works on most
+libcs using ntdll.so SONAME, but fails for musl. there has been some
+discussion of implementing this in musl, but it is clearly more
+correct to specify rpath $ORIGIN for ELF, same as darwin.
+
+this was always broken on musl but not noticed before 6.19 because
+dlsym failure was ignored prior to 5689ec7bba ("ntdll: Return a failure
+if the unix call funcs don't exist.")
+
+Fixes https://bugs.winehq.org/show_bug.cgi?id=52418.
+---
+ configure.ac | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/configure.ac b/configure.ac
+index 11111111111..11111111111 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -816,6 +816,10 @@ case $host_os in
+         esac
+         ;;
+     esac
++
++    # musl does not satisfy pathless dlopen requests with prior pathed dlls
++    # do this at the end because it needs double dollar for makefile
++    WINE_TRY_CFLAGS([-Wl,-rpath,\\\$ORIGIN],[UNIXLDFLAGS="$UNIXLDFLAGS '-Wl,-rpath,\$\$ORIGIN'"])
+     ;;
+ esac
+ 
+
+-- 
+0.0.0
+

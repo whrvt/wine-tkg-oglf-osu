@@ -1,0 +1,22 @@
+From 20947fbd978f98d430c2d586806487dc41844051 Mon Sep 17 00:00:00 2001
+From: Torge Matthies <openglfreak@googlemail.com>
+Date: Tue, 7 Dec 2021 21:51:07 +0100
+Subject: [PATCH 2/3] server: Enable link-time optimization.
+
+---
+ server/Makefile.in | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/server/Makefile.in b/server/Makefile.in
+index 11111111111..11111111111 100644
+--- a/server/Makefile.in
++++ b/server/Makefile.in
+@@ -52,6 +52,7 @@ SOURCES = \
+ 	winstation.c
+ 
+ UNIX_CFLAGS = $(DBUS_CFLAGS)
+-UNIX_LIBS = $(LDEXECFLAGS) $(RT_LIBS) $(INOTIFY_LIBS) $(PROCSTAT_LIBS) $(DBUS_LIBS)
++UNIX_LIBS = $(LDEXECFLAGS) $(RT_LIBS) $(INOTIFY_LIBS) $(PROCSTAT_LIBS) $(DBUS_LIBS) -flto=auto -flto-partition=one -fdevirtualize-at-ltrans
++EXTRADEFS = -flto=auto -flto-partition=one -fdevirtualize-at-ltrans
+ 
+ unicode_EXTRADEFS = -DNLSDIR="\"${nlsdir}\"" -DBIN_TO_NLSDIR=\"`${MAKEDEP} -R ${bindir} ${nlsdir}`\"

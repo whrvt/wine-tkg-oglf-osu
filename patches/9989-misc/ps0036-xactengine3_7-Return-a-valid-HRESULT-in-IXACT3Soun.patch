@@ -1,0 +1,72 @@
+From: Alistair Leslie-Hughes <leslie_alistair@hotmail.com>
+Subject: [PATCH v2] xactengine3_7: Return a valid HRESULT in IXACT3SoundBank Play
+Message-Id: <SLXP216MB062113921A00242C86427171933F0@SLXP216MB0621.KORP216.PROD.OUTLOOK.COM>
+Date: Fri, 18 Sep 2020 17:55:28 +1000
+In-Reply-To: <20200918075528.797554-1-leslie_alistair@hotmail.com>
+References: <20200918075528.797554-1-leslie_alistair@hotmail.com>
+
+Signed-off-by: Alistair Leslie-Hughes <leslie_alistair@hotmail.com>
+---
+ dlls/xactengine3_7/xact_dll.c | 22 +++++++++++++---------
+ 1 file changed, 13 insertions(+), 9 deletions(-)
+
+diff --git a/dlls/xactengine3_7/xact_dll.c b/dlls/xactengine3_7/xact_dll.c
+index 11111111111..11111111111 100644
+--- a/dlls/xactengine3_7/xact_dll.c
++++ b/dlls/xactengine3_7/xact_dll.c
+@@ -469,7 +469,7 @@ static HRESULT WINAPI IXACT3SoundBankImpl_Play(IXACT3SoundBank *iface,
+     XACT3SoundBankImpl *This = impl_from_IXACT3SoundBank(iface);
+     XACT3CueImpl *cue;
+     FACTCue *fcue;
+-    HRESULT hr;
++    UINT ret;
+ 
+     TRACE("(%p)->(%u, 0x%lx, %lu, %p)\n", This, nCueIndex, dwFlags, timeOffset,
+             ppCue);
+@@ -479,13 +479,13 @@ static HRESULT WINAPI IXACT3SoundBankImpl_Play(IXACT3SoundBank *iface,
+      * -flibit
+      */
+     if (ppCue == NULL){
+-        hr = FACTSoundBank_Play(This->fact_soundbank, nCueIndex, dwFlags,
++        ret = FACTSoundBank_Play(This->fact_soundbank, nCueIndex, dwFlags,
+                 timeOffset, NULL);
+     }else{
+-        hr = FACTSoundBank_Play(This->fact_soundbank, nCueIndex, dwFlags,
++        ret = FACTSoundBank_Play(This->fact_soundbank, nCueIndex, dwFlags,
+                 timeOffset, &fcue);
+-        if(FAILED(hr))
+-            return hr;
++        if(ret != 0)
++            goto done;
+ 
+         cue = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(*cue));
+         if (!cue)
+@@ -495,12 +495,12 @@ static HRESULT WINAPI IXACT3SoundBankImpl_Play(IXACT3SoundBank *iface,
+             return E_OUTOFMEMORY;
+         }
+ 
+-        hr = wrapper_add_entry(This->engine, fcue, &cue->IXACT3Cue_iface);
+-        if (FAILED(hr))
++        ret = wrapper_add_entry(This->engine, fcue, &cue->IXACT3Cue_iface);
++        if (ret != 0)
+         {
+             FACTCue_Destroy(fcue);
+             HeapFree(GetProcessHeap(), 0, cue);
+-            return hr;
++            goto done;
+         }
+ 
+         cue->IXACT3Cue_iface.lpVtbl = &XACT3Cue_Vtbl;
+@@ -509,7 +509,11 @@ static HRESULT WINAPI IXACT3SoundBankImpl_Play(IXACT3SoundBank *iface,
+         *ppCue = &cue->IXACT3Cue_iface;
+     }
+ 
+-    return hr;
++done:
++    if(ret != 0)
++        WARN("FACTSoundBank_Play returned %d\n", ret);
++
++    return !ret ? S_OK : E_FAIL;
+ }
+ 
+ static HRESULT WINAPI IXACT3SoundBankImpl_Stop(IXACT3SoundBank *iface,

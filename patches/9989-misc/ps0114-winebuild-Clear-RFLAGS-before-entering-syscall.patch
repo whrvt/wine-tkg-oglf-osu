@@ -1,0 +1,31 @@
+From: "Rémi Bernon" <rbernon@codeweavers.com>
+Subject: [PATCH] winebuild: Clear RFLAGS before entering syscall.
+Message-Id: <20210601084301.2074741-1-rbernon@codeweavers.com>
+Date: Tue,  1 Jun 2021 10:43:01 +0200
+
+We pushed the flags, but kept them set. Far Cry sets NT flags, which
+causes later iretd instruction to raise a GP fault exception.
+
+This fixes a regression from e341d1f695311725752c287057f6c6ab60fdf2a3.
+
+Wine-Bug: https://bugs.winehq.org/show_bug.cgi?id=50793
+Signed-off-by: Rémi Bernon <rbernon@codeweavers.com>
+---
+ dlls/ntdll/unix/signal_i386.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/dlls/ntdll/unix/signal_i386.c b/dlls/ntdll/unix/signal_i386.c
+index 11111111111..11111111111 100644
+--- a/dlls/ntdll/unix/signal_i386.c
++++ b/dlls/ntdll/unix/signal_i386.c
+@@ -2619,6 +2619,10 @@ __ASM_GLOBAL_FUNC( __wine_syscall_dispatcher,
+                    __ASM_CFI_REG_IS_AT1(eip, ecx, 0x08)
+                    "pushfl\n\t"
+                    __ASM_CFI(".cfi_adjust_cfa_offset 4\n\t")
++                   "pushl $0x202\n\t"
++                   __ASM_CFI(".cfi_adjust_cfa_offset 4\n\t")
++                   "popfl\n\t"
++                   __ASM_CFI(".cfi_adjust_cfa_offset -4\n\t")
+                    "popl 0x04(%ecx)\n\t"           /* frame->eflags */
+                    __ASM_CFI(".cfi_adjust_cfa_offset -4\n\t")
+                    ".globl " __ASM_NAME("__wine_syscall_dispatcher_prolog_end") "\n"

@@ -1,0 +1,74 @@
+#!/bin/bash
+
+	# fastsync / winesync
+	if [ "$_use_fastsync" = "true" ]; then
+
+	  # check Linux headers
+	  winesync_header_check=$(echo '#include <linux/winesync.h>' | gcc -H -E -fsyntax-only - 2>&1 | head -n1 | cut -d' ' -f2-)
+	  if [[ ! -s $winesync_header_check ]]; then
+	    error $winesync_header_check
+	    error "Winesync header was not found. Build is forcibly prevented."
+	    error 'Please use linux-tkg build with _winesync="true" or https://aur.archlinux.org/packages/winesync-dkms/'
+	    exit 1
+	  fi
+
+	  # not allowed on Valve tree
+	  if [[ "$_custom_wine_source" = *"ValveSoftware"* ]]; then
+	    error "Fastsync is not supported on Valve trees. Build is forcibly prevented. Please disable applying fastsync patches or use non-Valve trees"
+	    exit 1
+	  fi
+
+	  if [ "$_use_staging" = "true" ]; then
+	    if [ "$_staging_esync" = "true" ] && [ "$_use_fsync" = "true" ]; then
+	      if [ "$_protonify" = "true" ]; then
+	        if ( cd "${srcdir}"/"${_winesrcdir}" && git merge-base --is-ancestor 59485f00c917061c097c1805d7fa7f61c380c749 HEAD ); then
+	          _patchname='fastsync-staging-protonify.patch' && _patchmsg="Using fastsync (Esync/Fsync compatible) patchset" && nonuser_patcher
+	        elif ( cd "${srcdir}"/"${_winesrcdir}" && git merge-base --is-ancestor 7b243afc6322fa82ac42cec6de247a642e16b5a5 HEAD ); then
+	          _patchname='fastsync-staging-protonify-59485f0.patch' && _patchmsg="Using fastsync (Esync/Fsync compatible) patchset" && nonuser_patcher
+	        elif ( cd "${srcdir}"/"${_winesrcdir}" && git merge-base --is-ancestor 03c1930b74e9a41da84fd712a3ebdbb4f7fcbcb5 HEAD ); then
+	          _patchname='fastsync-staging-protonify-7b243af.patch' && _patchmsg="Using fastsync (Esync/Fsync compatible) patchset" && nonuser_patcher
+	        elif ( cd "${srcdir}"/"${_stgsrcdir}" && git merge-base --is-ancestor e534d6546a5be9f1cd53a0ea3ac79db7d977bed7 HEAD ); then
+	          _patchname='fastsync-staging-protonify-03c1930.patch' && _patchmsg="Using fastsync (Esync/Fsync compatible) patchset" && nonuser_patcher
+	        elif ( cd "${srcdir}"/"${_winesrcdir}" && git merge-base --is-ancestor 36b45c6d1c124dd16b3475ba743fcbbc99d6862d HEAD ); then
+	          _patchname='fastsync-staging-protonify-e534d65.patch' && _patchmsg="Using fastsync (Esync/Fsync compatible) patchset" && nonuser_patcher
+	        fi
+	      else
+	        if ( cd "${srcdir}"/"${_winesrcdir}" && git merge-base --is-ancestor 59485f00c917061c097c1805d7fa7f61c380c749 HEAD ); then
+	          _patchname='fastsync-staging.patch' && _patchmsg="Using fastsync (Esync/Fsync compatible) patchset" && nonuser_patcher
+	        elif ( cd "${srcdir}"/"${_winesrcdir}" && git merge-base --is-ancestor 7b243afc6322fa82ac42cec6de247a642e16b5a5 HEAD ); then
+	          _patchname='fastsync-staging-59485f0.patch' && _patchmsg="Using fastsync (Esync/Fsync compatible) patchset" && nonuser_patcher
+	        elif ( cd "${srcdir}"/"${_winesrcdir}" && git merge-base --is-ancestor 03c1930b74e9a41da84fd712a3ebdbb4f7fcbcb5 HEAD ); then
+	          _patchname='fastsync-staging-7b243af.patch' && _patchmsg="Using fastsync (Esync/Fsync compatible) patchset" && nonuser_patcher
+	        elif ( cd "${srcdir}"/"${_stgsrcdir}" && git merge-base --is-ancestor e534d6546a5be9f1cd53a0ea3ac79db7d977bed7 HEAD ); then
+	          _patchname='fastsync-staging-03c1930.patch' && _patchmsg="Using fastsync (Esync/Fsync compatible) patchset" && nonuser_patcher
+	        elif ( cd "${srcdir}"/"${_winesrcdir}" && git merge-base --is-ancestor 36b45c6d1c124dd16b3475ba743fcbbc99d6862d HEAD ); then
+	          _patchname='fastsync-staging-e534d65.patch' && _patchmsg="Using fastsync (Esync/Fsync compatible) patchset" && nonuser_patcher
+	        fi
+	      fi
+	    else
+	      error "Fastsync for Staging trees depends on _use_fsync. Build is forcibly prevented. Please enable _use_fsync in your .cfg to use fastsync"
+	      exit 1
+	    fi
+	  else
+	    if [ "$_use_esync" = "false" ] && [ "$_use_fsync" = "false" ]; then
+	      if ( cd "${srcdir}"/"${_winesrcdir}" && git merge-base --is-ancestor 59485f00c917061c097c1805d7fa7f61c380c749 HEAD); then
+	        _patchname='fastsync-mainline.patch' && _patchmsg="Using fastsync (mainline) patchset" && nonuser_patcher
+	      elif ( cd "${srcdir}"/"${_winesrcdir}" && git merge-base --is-ancestor 7b243afc6322fa82ac42cec6de247a642e16b5a5 HEAD); then
+	        _patchname='fastsync-mainline-59485f0.patch' && _patchmsg="Using fastsync (mainline) patchset" && nonuser_patcher
+	      elif ( cd "${srcdir}"/"${_winesrcdir}" && git merge-base --is-ancestor 03c1930b74e9a41da84fd712a3ebdbb4f7fcbcb5 HEAD ); then
+	        _patchname='fastsync-mainline-7b243af.patch' && _patchmsg="Using fastsync (mainline) patchset" && nonuser_patcher
+	      elif ( cd "${srcdir}"/"${_winesrcdir}" && git merge-base --is-ancestor f076e5f85490a44fd34057df9af1c3ae3e7d5d3b HEAD ); then
+	        _patchname='fastsync-mainline-03c1930.patch' && _patchmsg="Using fastsync (mainline) patchset" && nonuser_patcher
+	      elif ( cd "${srcdir}"/"${_winesrcdir}" && git merge-base --is-ancestor 36b45c6d1c124dd16b3475ba743fcbbc99d6862d HEAD ); then
+	        _patchname='fastsync-mainline-f076e5f.patch' && _patchmsg="Using fastsync (mainline) patchset" && nonuser_patcher
+	      fi
+	    else
+	      error "Fastsync for Plain trees conflicts with _use_esync and _use_fsync. Build is forcibly prevented. Please disable them in your .cfg to use fastsync"
+	      exit 1
+	    fi
+	  fi
+	  if [ "$_use_fastsync" = "true" ] && [ "$_clock_monotonic" = "true" ] && ( cd "${srcdir}"/"${_winesrcdir}" && git merge-base --is-ancestor 36b45c6d1c124dd16b3475ba743fcbbc99d6862d HEAD ); then
+	    _patchname='fastsync-clock_monotonic-fixup.patch' && _patchmsg="Applied fastsync fix due clock_monotonic" && nonuser_patcher
+	  fi
+
+	fi

@@ -1,0 +1,70 @@
+From: Kevin Puetz <PuetzKevinA@JohnDeere.com>
+Subject: [PATCH v2 3/4] include: _TEXT(...) should obey _UNICODE to match _TCHAR.
+Message-Id: <20200917225240.2581-1-PuetzKevinA@JohnDeere.com>
+Date: Thu, 17 Sep 2020 17:52:39 -0500
+In-Reply-To: <C20200917224905.2465-1-PuetzKevinA@JohnDeere.com>
+References: <C20200917224905.2465-1-PuetzKevinA@JohnDeere.com>
+
+This is, at least pedanticly, independent of the similar macro UNICODE
+which controls <windef.h>, e.g. TEXT(), TCHAR, WINELIB_NAME_AW.
+So _T(...) and _TEXT(...) can't reuse the implementation of TEXT(...).
+
+Signed-off-by: Kevin Puetz <PuetzKevinA@JohnDeere.com>
+---
+
+https://devblogs.microsoft.com/oldnewthing/20040212-00/?p=40643
+---
+ include/tchar.h | 14 +++++++++-----
+ 1 file changed, 9 insertions(+), 5 deletions(-)
+
+diff --git a/include/tchar.h b/include/tchar.h
+index 11111111111..11111111111 100644
+--- a/include/tchar.h
++++ b/include/tchar.h
+@@ -236,10 +236,6 @@ extern "C" {
+ 
+ #endif /* tchar mappings */
+ 
+-#define __T(x) __TEXT(x)
+-#define _T(x) __T(x)
+-#define _TEXT(x) __T(x)
+-
+ #ifdef _UNICODE
+ #if !defined(_WINT_T_DEFINED) && !defined(__WINT_TYPE__)
+ typedef unsigned short wint_t;
+@@ -252,12 +248,16 @@ typedef unsigned short wctype_t;
+ 
+ #ifndef __TCHAR_DEFINED
+ #if defined(WINE_UNICODE_NATIVE)
++#define __T(x) L##x
+ typedef wchar_t       _TCHAR;
+-#elif __cpp_unicode_literals >= 200710
++#else
++#define __T(x) u##x
++#if __cpp_unicode_literals >= 200710
+ typedef char16_t      _TCHAR;
+ #else
+ typedef unsigned short _TCHAR;
+ #endif
++#endif
+ typedef _TCHAR        _TUCHAR;
+ typedef _TCHAR        _TSCHAR;
+ typedef _TCHAR        _TXCHAR;
+@@ -266,6 +266,7 @@ typedef _TCHAR        _TINT;
+ #endif
+ 
+ #else /* _UNICODE */
++#define __T(x) x
+ #ifndef __TCHAR_DEFINED
+ typedef char          _TCHAR;
+ typedef unsigned char _TUCHAR;
+@@ -280,6 +281,9 @@ typedef unsigned int  _TINT;
+ #endif
+ #endif
+ 
++#define _T(x)    __T(x)
++#define _TEXT(x) __T(x)
++
+ #ifndef _TCHAR_DEFINED
+ typedef _TCHAR        TCHAR, *PTCHAR;
+ #define _TCHAR_DEFINED

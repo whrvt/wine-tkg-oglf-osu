@@ -1,0 +1,35 @@
+From: "Gabriel Ivăncescu" <gabrielopcode@gmail.com>
+Subject: [PATCH resend 2/2] user32: Don't redraw the Combo Box when dropped down if it has an editbox.
+Message-Id: <5efafd1af7393955637183fde2f453d488746b15.1606394081.git.gabrielopcode@gmail.com>
+Date: Thu, 26 Nov 2020 14:35:39 +0200
+In-Reply-To: <6508e5f7d1bba3e86c98d9fbe329450a7725d4f7.1606394081.git.gabrielopcode@gmail.com>
+References: <6508e5f7d1bba3e86c98d9fbe329450a7725d4f7.1606394081.git.gabrielopcode@gmail.com>
+
+Some applications subclass the combo box and handle WM_ERASEBKGND themselves,
+without using WS_CLIPCHILDREN. This causes them to erase over the editbox
+child. There's no reason to redraw it in this case since the editbox is
+supposed to cover it, anyway.
+
+Wine-Bug: https://bugs.winehq.org/show_bug.cgi?id=22260
+Signed-off-by: Gabriel Ivăncescu <gabrielopcode@gmail.com>
+---
+ dlls/user32/combo.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/dlls/user32/combo.c b/dlls/user32/combo.c
+index 11111111111..11111111111 100644
+--- a/dlls/user32/combo.c
++++ b/dlls/user32/combo.c
+@@ -979,7 +979,7 @@ static void CBDropDown( LPHEADCOMBO lphc )
+                        SWP_NOACTIVATE | SWP_SHOWWINDOW );
+ 
+ 
+-   if( !(lphc->wState & CBF_NOREDRAW) )
++   if( !(lphc->wState & (CBF_NOREDRAW | CBF_EDIT)) )
+      NtUserRedrawWindow( lphc->self, NULL, 0, RDW_INVALIDATE | RDW_ERASE | RDW_UPDATENOW );
+ 
+    EnableWindow( lphc->hWndLBox, TRUE );
+
+-- 
+0.0.0
+

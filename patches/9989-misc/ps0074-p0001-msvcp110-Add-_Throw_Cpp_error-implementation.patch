@@ -1,0 +1,131 @@
+From: Piotr Caban <piotr@codeweavers.com>
+Subject: [PATCH 1/2] msvcp110: Add _Throw_Cpp_error implementation.
+Message-Id: <9026fe42-3ca7-6a4b-7a51-a49f769d2ee6@codeweavers.com>
+Date: Thu, 11 Feb 2021 13:49:01 +0100
+
+
+Implementation based on
+https://github.com/microsoft/STL/blob/main/stl/src/thread0.cpp
+
+Signed-off-by: Piotr Caban <piotr@codeweavers.com>
+---
+  dlls/msvcp110/msvcp110.spec         |   2 +-
+  dlls/msvcp120/msvcp120.spec         |   2 +-
+  dlls/msvcp120_app/msvcp120_app.spec |   2 +-
+  dlls/msvcp140/msvcp140.spec         |   2 +-
+  dlls/msvcp90/exception.c            |  39 ++++++--
+  dlls/msvcp90/misc.c                 |  33 ++++++-
+  dlls/msvcp90/msvcp90.h              |  1 +
+  14 files changed, 162 insertions(+), 115 deletions(-)
+
+diff --git a/dlls/msvcp110/msvcp110.spec b/dlls/msvcp110/msvcp110.spec
+index 11111111111..11111111111 100644
+--- a/dlls/msvcp110/msvcp110.spec
++++ b/dlls/msvcp110/msvcp110.spec
+@@ -1779,7 +1779,7 @@
+ @ cdecl -arch=win32 ?_Syserror_map@std@@YAPBDH@Z(long) _Syserror_map
+ @ cdecl -arch=win64 ?_Syserror_map@std@@YAPEBDH@Z(long) _Syserror_map
+ @ cdecl ?_Throw_C_error@std@@YAXH@Z(long) _Throw_C_error
+-@ stub ?_Throw_Cpp_error@std@@YAXH@Z
++@ cdecl ?_Throw_Cpp_error@std@@YAXH@Z(long) _Throw_Cpp_error
+ @ cdecl -arch=win32 ?_Throw_future_error@std@@YAXABVerror_code@1@@Z(ptr) _Throw_future_error
+ @ cdecl -arch=win64 ?_Throw_future_error@std@@YAXAEBVerror_code@1@@Z(ptr) _Throw_future_error
+ @ stub ?_Throw_lock_error@threads@stdext@@YAXXZ
+diff --git a/dlls/msvcp120/msvcp120.spec b/dlls/msvcp120/msvcp120.spec
+index 11111111111..11111111111 100644
+--- a/dlls/msvcp120/msvcp120.spec
++++ b/dlls/msvcp120/msvcp120.spec
+@@ -1740,7 +1740,7 @@
+ @ cdecl -arch=win32 ?_Syserror_map@std@@YAPBDH@Z(long) _Syserror_map
+ @ cdecl -arch=win64 ?_Syserror_map@std@@YAPEBDH@Z(long) _Syserror_map
+ @ cdecl ?_Throw_C_error@std@@YAXH@Z(long) _Throw_C_error
+-@ stub ?_Throw_Cpp_error@std@@YAXH@Z
++@ cdecl ?_Throw_Cpp_error@std@@YAXH@Z(long) _Throw_Cpp_error
+ @ cdecl -arch=win32 ?_Throw_future_error@std@@YAXABVerror_code@1@@Z(ptr) _Throw_future_error
+ @ cdecl -arch=win64 ?_Throw_future_error@std@@YAXAEBVerror_code@1@@Z(ptr) _Throw_future_error
+ @ stub ?_Throw_lock_error@threads@stdext@@YAXXZ
+diff --git a/dlls/msvcp120_app/msvcp120_app.spec b/dlls/msvcp120_app/msvcp120_app.spec
+index 11111111111..11111111111 100644
+--- a/dlls/msvcp120_app/msvcp120_app.spec
++++ b/dlls/msvcp120_app/msvcp120_app.spec
+@@ -1740,7 +1740,7 @@
+ @ cdecl -arch=win32 ?_Syserror_map@std@@YAPBDH@Z(long) msvcp120.?_Syserror_map@std@@YAPBDH@Z
+ @ cdecl -arch=win64 ?_Syserror_map@std@@YAPEBDH@Z(long) msvcp120.?_Syserror_map@std@@YAPEBDH@Z
+ @ cdecl ?_Throw_C_error@std@@YAXH@Z(long) msvcp120.?_Throw_C_error@std@@YAXH@Z
+-@ stub ?_Throw_Cpp_error@std@@YAXH@Z
++@ cdecl ?_Throw_Cpp_error@std@@YAXH@Z(long) msvcp120.?_Throw_Cpp_error@std@@YAXH@Z
+ @ cdecl -arch=win32 ?_Throw_future_error@std@@YAXABVerror_code@1@@Z(ptr) msvcp120.?_Throw_future_error@std@@YAXABVerror_code@1@@Z
+ @ cdecl -arch=win64 ?_Throw_future_error@std@@YAXAEBVerror_code@1@@Z(ptr) msvcp120.?_Throw_future_error@std@@YAXAEBVerror_code@1@@Z
+ @ stub ?_Throw_lock_error@threads@stdext@@YAXXZ
+diff --git a/dlls/msvcp140/msvcp140.spec b/dlls/msvcp140/msvcp140.spec
+index 11111111111..11111111111 100644
+--- a/dlls/msvcp140/msvcp140.spec
++++ b/dlls/msvcp140/msvcp140.spec
+@@ -1624,7 +1624,7 @@
+ @ cdecl -arch=win32 ?_Syserror_map@std@@YAPBDH@Z(long) _Syserror_map
+ @ cdecl -arch=win64 ?_Syserror_map@std@@YAPEBDH@Z(long) _Syserror_map
+ @ cdecl ?_Throw_C_error@std@@YAXH@Z(long) _Throw_C_error
+-@ stub ?_Throw_Cpp_error@std@@YAXH@Z
++@ cdecl ?_Throw_Cpp_error@std@@YAXH@Z(long) _Throw_Cpp_error
+ @ cdecl -arch=win32 ?_Throw_future_error@std@@YAXABVerror_code@1@@Z(ptr) _Throw_future_error
+ @ cdecl -arch=win64 ?_Throw_future_error@std@@YAXAEBVerror_code@1@@Z(ptr) _Throw_future_error
+ @ cdecl -arch=arm ?_Tidy@?$_Yarn@D@std@@AAAXXZ(ptr) _Yarn_char__Tidy
+diff --git a/dlls/msvcp90/exception.c b/dlls/msvcp90/exception.c
+index 11111111111..11111111111 100644
+--- a/dlls/msvcp90/exception.c
++++ b/dlls/msvcp90/exception.c
+@@ -1079,6 +1079,54 @@ void __cdecl _Throw_C_error(int code)
+ 
+     _CxxThrowException(&se, &system_error_cxx_type);
+ }
++
++void __cdecl _Throw_Cpp_error(int code)
++{
++    system_error se;
++    const char *msg;
++    errno_t err;
++
++    TRACE("(%d)\n", code);
++
++    switch(code)
++    {
++    case 0:
++        err = EBUSY;
++        break;
++    case 1:
++        err = EINVAL;
++        break;
++    case 2:
++        err = ESRCH;
++        break;
++    case 3:
++        err = ENOMEM;
++        break;
++    case 4:
++        err = EPERM;
++        break;
++    case 5:
++        err = EDEADLK;
++        break;
++    case 6:
++        err = EAGAIN;
++        break;
++    default:
++#if _MSVCP_VER >= 140
++        abort();
++#else
++        return;
++#endif
++    }
++
++    msg = strerror(err);
++    MSVCP_runtime_error_ctor(&se.base, &msg);
++    se.code.code = err;
++    se.code.category = std_generic_category();
++    se.base.e.vtable = &system_error_vtable;
++
++    _CxxThrowException(&se, &system_error_cxx_type);
++}
+ #endif
+ 
+ #if _MSVCP_VER >= 140

@@ -1,0 +1,38 @@
+From: Kevin Puetz <PuetzKevinA@JohnDeere.com>
+Subject: [PATCH] makedep: Add various lib*.a targets to make all.
+Message-Id: <20220202192426.3670-1-PuetzKevinA@JohnDeere.com>
+Date: Wed,  2 Feb 2022 13:24:26 -0600
+
+Otherwise .c files with #pragma makedep implib will not be built
+
+--
+
+I think that compilation should not need to occur during `make install`;
+it should just be copying files (and maybe stripping) files into DESTDIR,
+without any need to modify the build folder.
+
+assuming (of course) that `make all` was up-to-date beforehand.
+---
+ tools/makedep.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/tools/makedep.c b/tools/makedep.c
+index 11111111111..11111111111 100644
+--- a/tools/makedep.c
++++ b/tools/makedep.c
+@@ -3492,8 +3492,11 @@ static void output_static_lib( struct makefile *make, unsigned int arch )
+     if (!arch) output_filenames_obj_dir( make, make->unixobj_files );
+     output( "\n" );
+     if (!make->extlib)
++    {
++        strarray_add( &make->all_targets, name );
+         add_install_rule( make, make->staticlib, arch, name,
+                           strmake( "d%s%s", arch_install_dirs[arch], make->staticlib ));
++    }
+ }
+ 
+ 
+
+-- 
+0.0.0
+

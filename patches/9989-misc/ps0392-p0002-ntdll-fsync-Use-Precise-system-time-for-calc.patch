@@ -1,0 +1,69 @@
+From 44143ab3397ff9dd4b860937aa07445df755a32b Mon Sep 17 00:00:00 2001
+From: Torge Matthies <openglfreak@googlemail.com>
+Date: Thu, 31 Mar 2022 22:11:56 +0200
+Subject: [PATCH 2/2] ntdll, fsync: Use Precise system time for calculations.
+
+Signed-off-by: Torge Matthies <openglfreak@googlemail.com>
+---
+ dlls/ntdll/unix/fsync.c | 19 ++++++++++++++-----
+ 1 file changed, 14 insertions(+), 5 deletions(-)
+
+diff --git a/dlls/ntdll/unix/fsync.c b/dlls/ntdll/unix/fsync.c
+index 11111111111..11111111111 100644
+--- a/dlls/ntdll/unix/fsync.c
++++ b/dlls/ntdll/unix/fsync.c
+@@ -83,13 +83,24 @@ struct timespec64
+     long long tv_nsec;
+ };
+ 
++static ULONGLONG get_current_time( void )
++{
++    struct timeval now;
++#ifdef HAVE_CLOCK_GETTIME
++    struct timespec ts;
++    if (!clock_gettime( CLOCK_REALTIME, &ts ))
++        return ticks_from_time_t( ts.tv_sec ) + (ts.tv_nsec + 50) / 100;
++#endif /* HAVE_CLOCK_GETTIME */
++    gettimeofday( &now, 0 );
++    return ticks_from_time_t( now.tv_sec ) + now.tv_usec * 10;
++}
++
+ static LONGLONG update_timeout( ULONGLONG end )
+ {
+     LARGE_INTEGER now;
+     LONGLONG timeleft;
+ 
+-    NtQuerySystemTime( &now );
+-    timeleft = end - now.QuadPart;
++    timeleft = end - get_current_time();
+     if (timeleft < 0) timeleft = 0;
+     return timeleft;
+ }
+@@ -738,7 +749,6 @@ static NTSTATUS __fsync_wait_objects( DWORD count, const HANDLE *handles,
+     int has_fsync = 0, has_server = 0;
+     int dummy_futex = 0;
+     LONGLONG timeleft;
+-    LARGE_INTEGER now;
+     DWORD waitcount;
+     ULONGLONG end;
+     int i, ret;
+@@ -761,7 +771,6 @@ static NTSTATUS __fsync_wait_objects( DWORD count, const HANDLE *handles,
+         }
+     }
+ 
+-    NtQuerySystemTime( &now );
+     if (timeout)
+     {
+         if (timeout->QuadPart == TIMEOUT_INFINITE)
+@@ -769,7 +778,7 @@ static NTSTATUS __fsync_wait_objects( DWORD count, const HANDLE *handles,
+         else if (timeout->QuadPart > 0)
+             end = timeout->QuadPart;
+         else
+-            end = now.QuadPart - timeout->QuadPart;
++            end = get_current_time() - timeout->QuadPart;
+     }
+ 
+     for (i = 0; i < count; i++)
+-- 
+0.0.0
+

@@ -1,0 +1,41 @@
+From: "Myah Caron" <qsniyg@mail.com>
+Subject: [PATCH 3/3] kernel32: Add stub for IsNativeVhdBoot
+Message-Id: <trinity-68871695-31af-4356-8081-c4633510fa41-1584276987634@3c-app-mailcom-lxa12>
+Date: Sun, 15 Mar 2020 13:56:27 +0100
+
+Signed-off-by "Myah Caron" <qsniyg@mail.com>
+---
+ dlls/kernel32/kernel32.spec |  1 +
+ dlls/kernel32/process.c     | 10 ++++++++++
+ 2 files changed, 11 insertions(+)
+
+diff --git a/dlls/kernel32/kernel32.spec b/dlls/kernel32/kernel32.spec
+index 11111111111..11111111111 100644
+--- a/dlls/kernel32/kernel32.spec
++++ b/dlls/kernel32/kernel32.spec
+@@ -1001,6 +1001,7 @@
+ @ stdcall -import IsDebuggerPresent()
+ @ stub -i386 IsLSCallback
+ @ stdcall -import IsNLSDefinedString(long long ptr wstr long)
++@ stdcall IsNativeVhdBoot(ptr)
+ @ stdcall -import IsNormalizedString(long wstr long)
+ @ stdcall -import IsProcessInJob(long long ptr)
+ @ stdcall -import IsProcessorFeaturePresent(long)
+diff --git a/dlls/kernel32/process.c b/dlls/kernel32/process.c
+index 11111111111..11111111111 100644
+--- a/dlls/kernel32/process.c
++++ b/dlls/kernel32/process.c
+@@ -1006,3 +1006,13 @@ DWORD WINAPI GetFirmwareEnvironmentVariableExW(LPCWSTR name, LPCWSTR guid, PVOID
+     SetLastError(ERROR_INVALID_FUNCTION);
+     return 0;
+ }
++
++/***********************************************************************
++ *              IsNativeVhdBoot                           (KERNEL32.@)
++ */
++BOOL WINAPI IsNativeVhdBoot(PBOOL native_vhd_boot) {
++    FIXME("(%p) returning false\n", native_vhd_boot);
++
++    *native_vhd_boot = FALSE;
++    return FALSE;
++}

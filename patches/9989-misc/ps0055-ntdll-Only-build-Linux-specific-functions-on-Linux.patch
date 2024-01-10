@@ -1,0 +1,44 @@
+From: Gerald Pfeifer <gerald@pfeifer.com>
+Subject: [PATCH] ntdll: Only build Linux-specific functions on Linux
+Message-Id: <20201206204633.8623E33E6A@hamza.pair.com>
+Date: Sun, 6 Dec 2020 21:46:25 +0100 (CET)
+
+logical_proc_info_add_by_id, logical_proc_info_add_cache,
+logical_proc_info_add_group, and logical_proc_info_add_numa_node
+are only useful and invoked on Linux, so disable their build
+elsewhere.
+
+(Without this compilers will, rightfully, warn about unused functions.
+GCC definitely does.)
+
+Signed-off-by: Gerald Pfeifer <gerald@pfeifer.com>
+---
+ dlls/ntdll/unix/system.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/dlls/ntdll/unix/system.c b/dlls/ntdll/unix/system.c
+index 11111111111..11111111111 100644
+--- a/dlls/ntdll/unix/system.c
++++ b/dlls/ntdll/unix/system.c
+@@ -656,6 +656,8 @@ struct cpu_topology_override *get_cpu_topology_override(void)
+     return cpu_override.mapping.cpu_count ? &cpu_override.mapping : NULL;
+ }
+ 
++#ifdef linux
++
+ static BOOL grow_logical_proc_buf(void)
+ {
+     SYSTEM_LOGICAL_PROCESSOR_INFORMATION *new_data;
+@@ -880,6 +882,8 @@ static BOOL logical_proc_info_add_group( DWORD num_cpus, ULONG_PTR mask )
+     return TRUE;
+ }
+ 
++#endif
++
+ #ifdef linux
+ 
+ /* Helper function for counting bitmap values as commonly used by the Linux kernel
+
+-- 
+0.0.0
+

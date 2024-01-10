@@ -1,0 +1,96 @@
+From: "Roman Pišl" <rpisl@seznam.cz>
+Subject: [PATCH] winex11.drv: Don't hard-lock when dropping from native into Wine application that shows modal dialog.
+Message-Id: <20200220213252.14986-1-rpisl@seznam.cz>
+Date: Thu, 20 Feb 2020 22:32:52 +0100
+
+Wine-Bug: https://bugs.winehq.org/show_bug.cgi?id=46522
+Wine-Bug: https://bugs.winehq.org/show_bug.cgi?id=46452
+
+Signed-off-by: Roman Pišl <rpisl@seznam.cz>
+---
+ dlls/winex11.drv/event.c  | 21 +++++++++++++++------
+ dlls/winex11.drv/window.c |  3 +++
+ dlls/winex11.drv/x11drv.h |  5 ++++-
+ 3 files changed, 22 insertions(+), 7 deletions(-)
+
+diff --git a/dlls/winex11.drv/event.c b/dlls/winex11.drv/event.c
+index 11111111111..11111111111 100644
+--- a/dlls/winex11.drv/event.c
++++ b/dlls/winex11.drv/event.c
+@@ -2064,9 +2064,10 @@ static void handle_xdnd_position_event( HWND hwnd, XEvent *xev )
+ }
+ 
+ 
+-static void handle_xdnd_drop_event( HWND hwnd, XEvent *xev )
++static XClientMessageEvent dropEvent;
++
++void process_xdnd_drop_event( HWND hwnd )
+ {
+-    XClientMessageEvent *event = &xev->xclient;
+     XClientMessageEvent e;
+     DWORD effect;
+ 
+@@ -2075,14 +2076,22 @@ static void handle_xdnd_drop_event( HWND hwnd, XEvent *xev )
+     /* Tell the target we are finished. */
+     memset( &e, 0, sizeof(e) );
+     e.type = ClientMessage;
+-    e.display = event->display;
+-    e.window = event->data.l[0];
++    e.display = dropEvent.display;
++    e.window = dropEvent.data.l[0];
+     e.message_type = x11drv_atom(XdndFinished);
+     e.format = 32;
+-    e.data.l[0] = event->window;
++    e.data.l[0] = dropEvent.window;
+     e.data.l[1] = !!effect;
+     e.data.l[2] = drop_effect_to_xdnd_action( effect );
+-    XSendEvent( event->display, event->data.l[0], False, NoEventMask, (XEvent *)&e );
++    XSendEvent( dropEvent.display, dropEvent.data.l[0], False, NoEventMask, (XEvent *)&e );
++}
++
++
++static void handle_xdnd_drop_event( HWND hwnd, XEvent *xev )
++{
++    XClientMessageEvent *event = &xev->xclient;
++    memcpy(&dropEvent, event, sizeof(*event));
++    NtUserPostMessage(hwnd, WM_X11DRV_DROPEVENT, 0, 0);
+ }
+ 
+ 
+diff --git a/dlls/winex11.drv/window.c b/dlls/winex11.drv/window.c
+index 11111111111..11111111111 100644
+--- a/dlls/winex11.drv/window.c
++++ b/dlls/winex11.drv/window.c
+@@ -3297,6 +3297,9 @@ LRESULT X11DRV_WindowMessage( HWND hwnd, UINT msg, WPARAM wp, LPARAM lp )
+     case WM_X11DRV_ADD_TAB:
+         taskbar_add_tab( hwnd );
+         return 0;
++    case WM_X11DRV_DROPEVENT:
++        process_xdnd_drop_event( hwnd );
++        return 0;
+     default:
+         FIXME( "got window msg %x hwnd %p wp %lx lp %lx\n", msg, hwnd, (long)wp, lp );
+         return 0;
+diff --git a/dlls/winex11.drv/x11drv.h b/dlls/winex11.drv/x11drv.h
+index 11111111111..11111111111 100644
+--- a/dlls/winex11.drv/x11drv.h
++++ b/dlls/winex11.drv/x11drv.h
+@@ -302,6 +302,8 @@ extern const struct gdi_dc_funcs *X11DRV_XRender_Init(void) DECLSPEC_HIDDEN;
+ extern struct opengl_funcs *get_glx_driver(UINT) DECLSPEC_HIDDEN;
+ extern const struct vulkan_funcs *get_vulkan_driver(UINT) DECLSPEC_HIDDEN;
+ 
++extern void process_xdnd_drop_event( HWND hwnd ) DECLSPEC_HIDDEN;
++
+ extern struct format_entry *import_xdnd_selection( Display *display, Window win, Atom selection,
+                                                    Atom *targets, UINT count,
+                                                    size_t *size ) DECLSPEC_HIDDEN;
+@@ -608,7 +610,8 @@ enum x11drv_window_messages
+     WM_X11DRV_DESKTOP_RESIZED,
+     WM_X11DRV_DESKTOP_SET_HICON_CURSOR,
+     WM_X11DRV_DELETE_TAB,
+-    WM_X11DRV_ADD_TAB
++    WM_X11DRV_ADD_TAB,
++    WM_X11DRV_DROPEVENT,
+ };
+ 
+ /* _NET_WM_STATE properties that we keep track of */

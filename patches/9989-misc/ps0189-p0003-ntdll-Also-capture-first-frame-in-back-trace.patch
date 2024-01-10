@@ -1,0 +1,58 @@
+From: Paul Gofman <pgofman@codeweavers.com>
+Subject: [PATCH v4 3/4] ntdll: Also capture first frame in back trace on x86.
+Message-Id: <20211101111400.153412-3-pgofman@codeweavers.com>
+Date: Mon,  1 Nov 2021 14:13:59 +0300
+In-Reply-To: <20211101111400.153412-1-pgofman@codeweavers.com>
+References: <20211101111400.153412-1-pgofman@codeweavers.com>
+
+Signed-off-by: Paul Gofman <pgofman@codeweavers.com>
+---
+v4:
+    - now when extra frame is provided by the helper no need in asm wrapper.
+
+ dlls/ntdll/signal_i386.c     | 5 +----
+ dlls/ntdll/tests/exception.c | 2 --
+ 2 files changed, 1 insertion(+), 6 deletions(-)
+
+diff --git a/dlls/ntdll/signal_i386.c b/dlls/ntdll/signal_i386.c
+index 11111111111..11111111111 100644
+--- a/dlls/ntdll/signal_i386.c
++++ b/dlls/ntdll/signal_i386.c
+@@ -523,9 +523,6 @@ ULONG WINAPI capture_stack_back_trace( ULONG skip, ULONG count, PVOID *buffer, U
+     ULONG *frame;
+     ULONG num_entries = 0;
+ 
+-    ++skip;
+-    ++count;
+-
+     RtlCaptureContext( &context );
+     if (hash) *hash = 0;
+     frame = (ULONG *)context.Ebp;
+@@ -540,7 +537,7 @@ ULONG WINAPI capture_stack_back_trace( ULONG skip, ULONG count, PVOID *buffer, U
+         }
+         frame = (ULONG *)*frame;
+     }
+-    return i ? i - 1 : 0;
++    return i;
+ }
+ 
+ 
+diff --git a/dlls/ntdll/tests/exception.c b/dlls/ntdll/tests/exception.c
+index 11111111111..11111111111 100644
+--- a/dlls/ntdll/tests/exception.c
++++ b/dlls/ntdll/tests/exception.c
+@@ -11440,10 +11440,8 @@ static void test_walk_stack(void)
+ 
+     start = test_walk_stack;
+     end = (BYTE *)start + 0x1000;
+-    todo_wine_if(sizeof(void *) == 4)
+     ok(addrs[0] >= start && addrs[0] < end, "Address is not inside test function, start %p, end %p, addr %p.\n",
+             start, end, addrs[0]);
+-    todo_wine_if(sizeof(void *) == 4)
+     ok(addrs2[0] >= start && addrs2[0] < end, "Address is not inside test function, start %p, end %p, addr %p.\n",
+             start, end, addrs2[0]);
+ 
+
+-- 
+0.0.0
+

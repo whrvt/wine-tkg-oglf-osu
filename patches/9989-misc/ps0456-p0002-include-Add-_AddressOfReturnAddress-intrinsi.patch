@@ -1,0 +1,46 @@
+From 06fb5672d5b5f0dede284ac4f1f518a48e7fee07 Mon Sep 17 00:00:00 2001
+From: Torge Matthies <openglfreak@googlemail.com>
+Date: Tue, 22 Aug 2023 02:20:42 +0200
+Subject: [PATCH 2/4] include: Add _AddressOfReturnAddress intrinsic.
+
+Signed-off-by: Torge Matthies <tmatthies@codeweavers.com>
+Signed-off-by: Torge Matthies <openglfreak@googlemail.com>
+---
+ include/winnt.h | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/include/winnt.h b/include/winnt.h
+index 11111111111..11111111111 100644
+--- a/include/winnt.h
++++ b/include/winnt.h
+@@ -6814,6 +6814,7 @@ typedef enum _FIRMWARE_TYPE
+ #pragma intrinsic(_InterlockedOr)
+ #pragma intrinsic(_InterlockedXor)
+ #pragma intrinsic(_ReturnAddress)
++#pragma intrinsic(_AddressOfReturnAddress)
+ #pragma intrinsic(__fastfail)
+ 
+ BOOLEAN   _BitScanForward(unsigned long*,unsigned long);
+@@ -6832,6 +6833,7 @@ short     _InterlockedIncrement16(short volatile*);
+ long      _InterlockedOr(long volatile *,long);
+ long      _InterlockedXor(long volatile *,long);
+ void     *_ReturnAddress(void);
++void     *_AddressOfReturnAddress(void);
+ DECLSPEC_NORETURN void __fastfail(unsigned int);
+ 
+ #ifndef __i386__
+@@ -7176,6 +7178,11 @@ static FORCEINLINE void *_ReturnAddress(void)
+     return __builtin_extract_return_addr(__builtin_return_address(0));
+ }
+ 
++static FORCEINLINE void *_AddressOfReturnAddress(void)
++{
++    return ((void*)((void**)__builtin_frame_address(0) + 1));
++}
++
+ static FORCEINLINE DECLSPEC_NORETURN void __fastfail(unsigned int code)
+ {
+ #if defined(__x86_64__) || defined(__i386__)
+-- 
+0.0.0
+

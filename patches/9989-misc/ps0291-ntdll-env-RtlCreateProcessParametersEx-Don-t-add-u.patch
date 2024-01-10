@@ -1,0 +1,105 @@
+From: Keno Fischer <keno@juliacomputing.com>
+Subject: [PATCH] ntdll/env: RtlCreateProcessParametersEx: Don't add unnecessary padding
+Message-Id: <Ycy4fwpwwMFWrV79@juliacomputing.com>
+Date: Wed, 29 Dec 2021 14:35:27 -0500
+
+RtlCreateProcessParametersEx tries to align all strings to either 8 or 4 byte
+boundaries (it seems wine and various windows versions disagree about which).
+However, using the previous algorithm, we would adding padding bytes for the
+alignment of the Environment, even if no Environment was specified. Windows
+does not add these padding bytes and in fact we were testing that they are
+not present. Prior to this patch, I am seeing the following test failure locally:
+
+env.c:461: Test failed: wrong end ptr 00000000002427D6/00000000002427D8
+
+This patch fixes the issue by not allocating the superfluous padding bytes,
+matching the Windows behavior and fixing the test.
+
+Signed-off-by: Keno Fischer <keno@juliacomputing.com>
+---
+ dlls/ntdll/env.c | 41 ++++++++++++++++++++++++++++-------------
+ 1 file changed, 28 insertions(+), 13 deletions(-)
+
+diff --git a/dlls/ntdll/env.c b/dlls/ntdll/env.c
+index 11111111111..11111111111 100644
+--- a/dlls/ntdll/env.c
++++ b/dlls/ntdll/env.c
+@@ -496,6 +496,11 @@ PRTL_USER_PROCESS_PARAMETERS WINAPI RtlDeNormalizeProcessParams( RTL_USER_PROCES
+ 
+ #define ROUND_SIZE(size,align) (((size) + (align) - 1) & ~((align) - 1))
+ 
++static void *align_ptr(void *ptr, size_t align)
++{
++    return (void*)(((UINT_PTR)ptr + (align) - 1) & ~((align) - 1));
++}
++
+ /* append a unicode string to the process params data; helper for RtlCreateProcessParameters */
+ static void append_unicode_string( void **data, const UNICODE_STRING *src,
+                                    UNICODE_STRING *dst, size_t align )
+@@ -504,13 +509,20 @@ static void append_unicode_string( void **data, const UNICODE_STRING *src,
+     dst->MaximumLength = src->MaximumLength;
+     if (dst->MaximumLength)
+     {
+-        dst->Buffer = *data;
++        dst->Buffer = align_ptr( *data, align );
+         memcpy( dst->Buffer, src->Buffer, dst->Length );
+-        *data = (char *)dst->Buffer + ROUND_SIZE( dst->MaximumLength, align );
++        *data = (char *)dst->Buffer + dst->MaximumLength;
+     }
+     else dst->Buffer = NULL;
+ }
+ 
++static void add_rounded_size(SIZE_T *size, size_t align, SIZE_T new_size)
++{
++    if (new_size) {
++        *size = ROUND_SIZE(*size, align) + new_size;
++    }
++}
++
+ static RTL_USER_PROCESS_PARAMETERS *alloc_process_params( size_t align,
+                                                           const UNICODE_STRING *image,
+                                                           const UNICODE_STRING *dllpath,
+@@ -526,17 +538,20 @@ static RTL_USER_PROCESS_PARAMETERS *alloc_process_params( size_t align,
+     SIZE_T size, env_size = 0;
+     void *ptr;
+ 
+-    if (env) env_size = get_env_length( env ) * sizeof(WCHAR);
++    size = sizeof(RTL_USER_PROCESS_PARAMETERS);
++    add_rounded_size(&size, align, image->MaximumLength);
++    add_rounded_size(&size, align, dllpath->MaximumLength);
++    add_rounded_size(&size, align, curdir->MaximumLength);
++    add_rounded_size(&size, align, cmdline->MaximumLength);
++    add_rounded_size(&size, align, title->MaximumLength);
++    add_rounded_size(&size, align, desktop->MaximumLength);
++    add_rounded_size(&size, align, shell->MaximumLength);
++    add_rounded_size(&size, align, runtime->MaximumLength);
+ 
+-    size = (sizeof(RTL_USER_PROCESS_PARAMETERS)
+-            + ROUND_SIZE( image->MaximumLength, align )
+-            + ROUND_SIZE( dllpath->MaximumLength, align )
+-            + ROUND_SIZE( curdir->MaximumLength, align )
+-            + ROUND_SIZE( cmdline->MaximumLength, align )
+-            + ROUND_SIZE( title->MaximumLength, align )
+-            + ROUND_SIZE( desktop->MaximumLength, align )
+-            + ROUND_SIZE( shell->MaximumLength, align )
+-            + ROUND_SIZE( runtime->MaximumLength, align ));
++    if (env) {
++        env_size = get_env_length( env ) * sizeof(WCHAR);
++        size = ROUND_SIZE(size, align);
++    }
+ 
+     if (!(ptr = RtlAllocateHeap( GetProcessHeap(), HEAP_ZERO_MEMORY, size + ROUND_SIZE( env_size, align ))))
+         return NULL;
+@@ -557,7 +572,7 @@ static RTL_USER_PROCESS_PARAMETERS *alloc_process_params( size_t align,
+     append_unicode_string( &ptr, desktop, &params->Desktop, align );
+     append_unicode_string( &ptr, shell, &params->ShellInfo, align );
+     append_unicode_string( &ptr, runtime, &params->RuntimeInfo, align );
+-    if (env) params->Environment = memcpy( ptr, env, env_size );
++    if (env) params->Environment = memcpy( align_ptr(ptr, align), env, env_size );
+     return params;
+ }
+ 
+
+-- 
+0.0.0
+

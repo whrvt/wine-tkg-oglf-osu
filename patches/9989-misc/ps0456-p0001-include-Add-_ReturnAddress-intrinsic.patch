@@ -1,0 +1,46 @@
+From 64402f1b11e2381f6e47382e74df23d742f51b14 Mon Sep 17 00:00:00 2001
+From: Torge Matthies <openglfreak@googlemail.com>
+Date: Tue, 22 Aug 2023 02:20:41 +0200
+Subject: [PATCH 1/4] include: Add _ReturnAddress intrinsic.
+
+Signed-off-by: Torge Matthies <tmatthies@codeweavers.com>
+Signed-off-by: Torge Matthies <openglfreak@googlemail.com>
+---
+ include/winnt.h | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/include/winnt.h b/include/winnt.h
+index 11111111111..11111111111 100644
+--- a/include/winnt.h
++++ b/include/winnt.h
+@@ -6813,6 +6813,7 @@ typedef enum _FIRMWARE_TYPE
+ #pragma intrinsic(_InterlockedDecrement16)
+ #pragma intrinsic(_InterlockedOr)
+ #pragma intrinsic(_InterlockedXor)
++#pragma intrinsic(_ReturnAddress)
+ #pragma intrinsic(__fastfail)
+ 
+ BOOLEAN   _BitScanForward(unsigned long*,unsigned long);
+@@ -6830,6 +6831,7 @@ long      _InterlockedIncrement(long volatile*);
+ short     _InterlockedIncrement16(short volatile*);
+ long      _InterlockedOr(long volatile *,long);
+ long      _InterlockedXor(long volatile *,long);
++void     *_ReturnAddress(void);
+ DECLSPEC_NORETURN void __fastfail(unsigned int);
+ 
+ #ifndef __i386__
+@@ -7169,6 +7171,11 @@ static FORCEINLINE void WriteNoFence( LONG volatile *dest, LONG value )
+     __WINE_ATOMIC_STORE_RELAXED( dest, &value );
+ }
+ 
++static FORCEINLINE void *_ReturnAddress(void)
++{
++    return __builtin_extract_return_addr(__builtin_return_address(0));
++}
++
+ static FORCEINLINE DECLSPEC_NORETURN void __fastfail(unsigned int code)
+ {
+ #if defined(__x86_64__) || defined(__i386__)
+-- 
+0.0.0
+

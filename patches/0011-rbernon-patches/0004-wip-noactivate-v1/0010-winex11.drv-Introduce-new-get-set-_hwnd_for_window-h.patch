@@ -1,0 +1,176 @@
+From fa09e21e06f8c8e46d72a71bb8d8c130f0c4ecbb Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?R=C3=A9mi=20Bernon?= <rbernon@codeweavers.com>
+Date: Thu, 16 Jan 2020 12:30:15 +0100
+Subject: [PATCH 10/19] winex11.drv: Introduce new (get|set)_hwnd_for_window
+ helpers.
+
+Wrapping the Xlib winContext context uses.
+
+CW-Bug-Id: #19553
+CW-Bug-Id: #19644
+Wine-Bug: https://bugs.winehq.org/show_bug.cgi?id=2155
+---
+ dlls/winex11.drv/event.c  | 10 +++-------
+ dlls/winex11.drv/window.c | 41 +++++++++++++++++++++++++++++++--------
+ dlls/winex11.drv/x11drv.h |  3 +++
+ 3 files changed, 39 insertions(+), 15 deletions(-)
+
+diff --git a/dlls/winex11.drv/event.c b/dlls/winex11.drv/event.c
+index 11111111111..11111111111 100644
+--- a/dlls/winex11.drv/event.c
++++ b/dlls/winex11.drv/event.c
+@@ -383,9 +383,7 @@ static inline BOOL call_event_handler( Display *display, XEvent *event )
+ #ifdef GenericEvent
+     if (event->type == GenericEvent) hwnd = 0; else
+ #endif
+-    if (XFindContext( display, event->xany.window, winContext, (char **)&hwnd ) != 0)
+-        hwnd = 0;  /* not for a registered window */
+-    if (!hwnd && event->xany.window == root_window) hwnd = NtUserGetDesktopWindow();
++    hwnd = get_hwnd_for_window( display, event->xany.window );
+ 
+     TRACE( "%lu %s for hwnd/window %p/%lx\n",
+            event->xany.serial, dbgstr_event( event->type ), hwnd, event->xany.window );
+@@ -777,11 +775,9 @@ BOOL is_current_process_focused(void)
+     Display *display = x11drv_thread_data()->display;
+     Window focus;
+     int revert;
+-    HWND hwnd;
+ 
+     XGetInputFocus( display, &focus, &revert );
+-    if (focus && !XFindContext( display, focus, winContext, (char **)&hwnd )) return TRUE;
+-    return FALSE;
++    return !!get_hwnd_for_window( display, focus );
+ }
+ 
+ /**********************************************************************
+@@ -1726,7 +1722,7 @@ static void handle_dnd_protocol( HWND hwnd, XClientMessageEvent *event )
+     /* query window (drag&drop event contains only drag window) */
+     XQueryPointer( event->display, root_window, &root, &child,
+                    &root_x, &root_y, &child_x, &child_y, &u);
+-    if (XFindContext( event->display, child, winContext, (char **)&hwnd ) != 0) hwnd = 0;
++    hwnd = get_hwnd_for_window( event->display, child );
+     if (!hwnd) return;
+     if (event->data.l[0] == DndFile || event->data.l[0] == DndFiles)
+         EVENT_DropFromOffiX(hwnd, event);
+diff --git a/dlls/winex11.drv/window.c b/dlls/winex11.drv/window.c
+index 11111111111..11111111111 100644
+--- a/dlls/winex11.drv/window.c
++++ b/dlls/winex11.drv/window.c
+@@ -1629,7 +1629,7 @@ Window create_client_window( HWND hwnd, const XVisualInfo *visual )
+ 
+     if (data->client_window)
+     {
+-        XDeleteContext( data->display, data->client_window, winContext );
++        set_hwnd_for_window( data->display, data->client_window, 0 );
+         XReparentWindow( gdi_display, data->client_window, dummy_parent, 0, 0 );
+         TRACE( "%p reparent xwin %lx/%lx\n", data->hwnd, data->whole_window, data->client_window );
+     }
+@@ -1658,7 +1658,7 @@ Window create_client_window( HWND hwnd, const XVisualInfo *visual )
+                                                CWBackingStore | CWColormap | CWBorderPixel, &attr );
+     if (data->client_window)
+     {
+-        XSaveContext( data->display, data->client_window, winContext, (char *)data->hwnd );
++        set_hwnd_for_window( data->display, data->client_window, data->hwnd );
+         XMapWindow( gdi_display, data->client_window );
+         if (data->whole_window)
+         {
+@@ -1722,7 +1722,7 @@ static void create_whole_window( struct x11drv_win_data *data )
+     set_initial_wm_hints( data->display, data->whole_window );
+     set_wm_hints( data );
+ 
+-    XSaveContext( data->display, data->whole_window, winContext, (char *)data->hwnd );
++    set_hwnd_for_window( data->display, data->whole_window, data->hwnd );
+     NtUserSetProp( data->hwnd, whole_window_prop, (HANDLE)data->whole_window );
+ 
+     /* set the window text */
+@@ -1752,7 +1752,7 @@ static void destroy_whole_window( struct x11drv_win_data *data, BOOL already_des
+ {
+     TRACE( "win %p xwin %lx/%lx\n", data->hwnd, data->whole_window, data->client_window );
+ 
+-    if (data->client_window) XDeleteContext( data->display, data->client_window, winContext );
++    if (data->client_window) set_hwnd_for_window( data->display, data->client_window, 0 );
+ 
+     if (!data->whole_window)
+     {
+@@ -1762,7 +1762,7 @@ static void destroy_whole_window( struct x11drv_win_data *data, BOOL already_des
+             if (xwin)
+             {
+                 if (!already_destroyed) XSelectInput( data->display, xwin, 0 );
+-                XDeleteContext( data->display, xwin, winContext );
++                set_hwnd_for_window( data->display, xwin, 0 );
+                 NtUserRemoveProp( data->hwnd, foreign_window_prop );
+             }
+             return;
+@@ -1776,7 +1776,7 @@ static void destroy_whole_window( struct x11drv_win_data *data, BOOL already_des
+             XFlush( data->display ); /* make sure XSelectInput doesn't use client_window after this point */
+             XReparentWindow( gdi_display, data->client_window, get_dummy_parent(), 0, 0 );
+         }
+-        XDeleteContext( data->display, data->whole_window, winContext );
++        set_hwnd_for_window( data->display, data->whole_window, 0 );
+         if (!already_destroyed)
+         {
+             XSync( gdi_display, False ); /* make sure XReparentWindow requests have completed before destroying whole_window */
+@@ -2190,7 +2190,7 @@ HWND create_foreign_window( Display *display, Window xwin )
+         class_registered = TRUE;
+     }
+ 
+-    if (XFindContext( display, xwin, winContext, (char **)&hwnd )) hwnd = 0;
++    hwnd = get_hwnd_for_window( display, xwin );
+     if (hwnd) return hwnd;  /* already created */
+ 
+     XSelectInput( display, xwin, StructureNotifyMask );
+@@ -2233,7 +2233,7 @@ HWND create_foreign_window( Display *display, Window xwin )
+     data->mapped = TRUE;
+ 
+     NtUserSetProp( hwnd, foreign_window_prop, (HANDLE)xwin );
+-    XSaveContext( display, xwin, winContext, (char *)data->hwnd );
++    set_hwnd_for_window( display, xwin, data->hwnd );
+ 
+     TRACE( "win %lx parent %p style %08x %s -> hwnd %p\n",
+            xwin, parent, style, wine_dbgstr_rect(&data->window_rect), hwnd );
+@@ -3344,3 +3344,28 @@ void init_win_context(void)
+     win_data_context = XUniqueContext();
+     cursor_context = XUniqueContext();
+ }
++
++HWND get_hwnd_for_window( Display *display, Window window )
++{
++    HWND hwnd;
++
++    if (!window) return 0;
++    if (window == root_window) return NtUserGetDesktopWindow();
++
++    TRACE( "display %p, window %lx\n", display, window );
++
++    if (!XFindContext( display, window, winContext, (char **)&hwnd )) return hwnd;
++
++    WARN( "Failed to find HWND for window %lx\n", window );
++    return 0;
++}
++
++void set_hwnd_for_window( Display *display, Window window, HWND hwnd )
++{
++    if (!window || window == root_window) return;
++
++    TRACE( "display %p, window %lx, hwnd %p\n", display, window, hwnd );
++
++    if (!hwnd) XDeleteContext( display, window, winContext );
++    else XSaveContext( display, window, winContext, (char *)hwnd );
++}
+diff --git a/dlls/winex11.drv/x11drv.h b/dlls/winex11.drv/x11drv.h
+index 11111111111..11111111111 100644
+--- a/dlls/winex11.drv/x11drv.h
++++ b/dlls/winex11.drv/x11drv.h
+@@ -652,6 +652,9 @@ extern void release_win_data( struct x11drv_win_data *data ) DECLSPEC_HIDDEN;
+ extern Window X11DRV_get_whole_window( HWND hwnd ) DECLSPEC_HIDDEN;
+ extern Window get_dummy_parent(void) DECLSPEC_HIDDEN;
+ 
++extern HWND get_hwnd_for_window( Display *display, Window window ) DECLSPEC_HIDDEN;
++extern void set_hwnd_for_window( Display *display, Window window, HWND hwnd ) DECLSPEC_HIDDEN;
++
+ extern void sync_gl_drawable( HWND hwnd, BOOL known_child ) DECLSPEC_HIDDEN;
+ extern void set_gl_drawable_parent( HWND hwnd, HWND parent ) DECLSPEC_HIDDEN;
+ extern void destroy_gl_drawable( HWND hwnd ) DECLSPEC_HIDDEN;
+-- 
+0.0.0
+

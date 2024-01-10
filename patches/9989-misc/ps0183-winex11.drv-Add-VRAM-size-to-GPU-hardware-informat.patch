@@ -1,0 +1,106 @@
+From: Paul Gofman <pgofman@codeweavers.com>
+Subject: [PATCH v2] winex11.drv: Add VRAM size to GPU hardware information if available.
+Message-Id: <20211019153907.507881-1-pgofman@codeweavers.com>
+Date: Tue, 19 Oct 2021 18:39:07 +0300
+
+Signed-off-by: Paul Gofman <pgofman@codeweavers.com>
+---
+v2:
+    - add device local heap sizes instead of taking maximum (matches wined3d behaviour).
+
+ dlls/win32u/sysparams.c   | 13 +++++++++++++
+ dlls/winex11.drv/xrandr.c | 11 +++++++++++
+ include/wine/gdi_driver.h |  1 +
+ 3 files changed, 25 insertions(+)
+
+diff --git a/dlls/win32u/sysparams.c b/dlls/win32u/sysparams.c
+index 11111111111..11111111111 100644
+--- a/dlls/win32u/sysparams.c
++++ b/dlls/win32u/sysparams.c
+@@ -1222,6 +1222,12 @@ static void add_gpu( const struct gdi_gpu *gpu, void *param )
+     static const WCHAR adapter_stringW[] =
+         {'H','a','r','d','w','a','r','e','I','n','f','o','r','m','a','t','i','o','n',
+          '.','A','d','a','p','t','e','r','S','t','r','i','n','g',0};
++    static const WCHAR qw_mem_sizeW[] =
++        {'H','a','r','d','w','a','r','e','I','n','f','o','r','m','a','t','i','o','n',
++         '.','q','w','M','e','m','o','r','y','S','i','z','e',0};
++    static const WCHAR mem_sizeW[] =
++        {'H','a','r','d','w','a','r','e','I','n','f','o','r','m','a','t','i','o','n',
++         '.','M','e','m','o','r','y','S','i','z','e',0};
+     static const WCHAR bios_stringW[] =
+         {'H','a','r','d','w','a','r','e','I','n','f','o','r','m','a','t','i','o','n','.',
+          'B','i','o','s','S','t','r','i','n','g',0};
+@@ -1362,6 +1368,13 @@ static void add_gpu( const struct gdi_gpu *gpu, void *param )
+         NtClose( subkey );
+     }
+ 
++    if (gpu->vram_size)
++    {
++        size = min(0xfff00000, gpu->vram_size);
++        set_reg_value(hkey, mem_sizeW, REG_DWORD, (const BYTE *)&size, sizeof(size));
++        set_reg_value(hkey, qw_mem_sizeW, REG_QWORD, (const BYTE *)&gpu->vram_size, sizeof(gpu->vram_size));
++    }
++
+     NtClose( hkey );
+ 
+     sprintf( buffer, "Class\\%s\\%04X", guid_devclass_displayA, gpu_index );
+diff --git a/dlls/winex11.drv/xrandr.c b/dlls/winex11.drv/xrandr.c
+index 11111111111..11111111111 100644
+--- a/dlls/winex11.drv/xrandr.c
++++ b/dlls/winex11.drv/xrandr.c
+@@ -860,8 +860,10 @@ static BOOL get_gpu_properties_from_vulkan( struct gdi_gpu *gpu, const XRRProvid
+     };
+     const struct vulkan_funcs *vulkan_funcs = get_vulkan_driver( WINE_VULKAN_DRIVER_VERSION );
+     VkResult (*pvkGetRandROutputDisplayEXT)( VkPhysicalDevice, Display *, RROutput, VkDisplayKHR * );
++    PFN_vkGetPhysicalDeviceMemoryProperties pvkGetPhysicalDeviceMemoryProperties;
+     PFN_vkGetPhysicalDeviceProperties2KHR pvkGetPhysicalDeviceProperties2KHR;
+     PFN_vkEnumeratePhysicalDevices pvkEnumeratePhysicalDevices;
++    VkPhysicalDeviceMemoryProperties memory_properties;
+     uint32_t device_count, device_idx, output_idx, i;
+     VkPhysicalDevice *vk_physical_devices = NULL;
+     VkPhysicalDeviceProperties2 properties2;
+@@ -871,6 +873,7 @@ static BOOL get_gpu_properties_from_vulkan( struct gdi_gpu *gpu, const XRRProvid
+     VkDisplayKHR vk_display;
+     DWORD len;
+     BOOL ret = FALSE;
++    unsigned int j;
+     VkResult vr;
+ 
+     if (!vulkan_funcs)
+@@ -897,6 +900,7 @@ static BOOL get_gpu_properties_from_vulkan( struct gdi_gpu *gpu, const XRRProvid
+ 
+     LOAD_VK_FUNC(vkEnumeratePhysicalDevices)
+     LOAD_VK_FUNC(vkGetPhysicalDeviceProperties2KHR)
++    LOAD_VK_FUNC(vkGetPhysicalDeviceMemoryProperties)
+     LOAD_VK_FUNC(vkGetRandROutputDisplayEXT)
+ #undef LOAD_VK_FUNC
+ 
+@@ -948,6 +952,13 @@ static BOOL get_gpu_properties_from_vulkan( struct gdi_gpu *gpu, const XRRProvid
+             if (i < prev_gpu_count) continue;
+ 
+             memcpy( &gpu->vulkan_uuid, id.deviceUUID, sizeof(id.deviceUUID) );
++            pvkGetPhysicalDeviceMemoryProperties( vk_physical_devices[device_idx], &memory_properties );
++            gpu->vram_size = 0;
++            for (j = 0; j < memory_properties.memoryHeapCount; ++j)
++            {
++                if (memory_properties.memoryHeaps[j].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT)
++                    gpu->vram_size += memory_properties.memoryHeaps[j].size;
++            }
+ 
+             /* Ignore Khronos vendor IDs */
+             if (properties2.properties.vendorID < 0x10000)
+diff --git a/include/wine/gdi_driver.h b/include/wine/gdi_driver.h
+index 11111111111..11111111111 100644
+--- a/include/wine/gdi_driver.h
++++ b/include/wine/gdi_driver.h
+@@ -249,6 +249,7 @@ struct gdi_gpu
+     UINT subsys_id;
+     UINT revision_id;
+     GUID vulkan_uuid;     /* Vulkan device UUID */
++    UINT64 vram_size;
+ };
+ 
+ struct gdi_adapter
+-- 
+0.0.0
+

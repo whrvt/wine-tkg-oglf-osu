@@ -1,0 +1,52 @@
+From: Jefferson Carpenter <jefferson@aoeu2code.com>
+#Subject: [PATCH] msxml3: Null check url in parseURL.
+Message-Id: <4530cb5e-ce6d-0a97-0d9f-da919bf3409d@aoeu2code.com>
+Date: Mon, 14 Jun 2021 23:07:07 +0000
+
+From 765e5f6725e1c41a6fe620cea5e52442fa0aa8f5 Mon Sep 17 00:00:00 2001
+From: Jefferson Carpenter <jeffersoncarpenter2@gmail.com>
+Date: Sun, 13 Jun 2021 06:20:19 +0000
+Subject: [PATCH] msxml3: Null check url in parseURL.
+
+Wine-Bug: https://bugs.winehq.org/show_bug.cgi?id=51267
+Signed-off-by: Jefferson Carpenter <jeffersoncarpenter2@gmail.com>
+---
+ dlls/msxml3/saxreader.c       | 2 ++
+ dlls/msxml3/tests/saxreader.c | 7 +++++++
+ 2 files changed, 9 insertions(+)
+
+diff --git a/dlls/msxml3/saxreader.c b/dlls/msxml3/saxreader.c
+index 11111111111..11111111111 100644
+--- a/dlls/msxml3/saxreader.c
++++ b/dlls/msxml3/saxreader.c
+@@ -2731,6 +2731,8 @@ static HRESULT internal_parseURL(saxreader *reader, const WCHAR *url, BOOL vbInt
+     if (!url && reader->version < MSXML4)
+         return E_INVALIDARG;
+ 
++    if (!url) return E_INVALIDARG;
++
+     hr = create_moniker_from_url(url, &mon);
+     if(FAILED(hr))
+         return hr;
+diff --git a/dlls/msxml3/tests/saxreader.c b/dlls/msxml3/tests/saxreader.c
+index 11111111111..11111111111 100644
+--- a/dlls/msxml3/tests/saxreader.c
++++ b/dlls/msxml3/tests/saxreader.c
+@@ -2303,6 +2303,13 @@ static void test_saxreader(void)
+         V_VT(&var) = VT_BSTR;
+         V_BSTR(&var) = SysAllocString(carriage_ret_test);
+ 
++        /* crashes on new versions */
++        if (IsEqualGUID(table->clsid, &CLSID_SAXXMLReader) ||
++            IsEqualGUID(table->clsid, &CLSID_SAXXMLReader30)) {
++            hr = ISAXXMLReader_parseURL(reader, NULL);
++            EXPECT_HR(hr, E_INVALIDARG);
++        }
++
+         if (IsEqualGUID(table->clsid, &CLSID_SAXXMLReader40) ||
+             IsEqualGUID(table->clsid, &CLSID_SAXXMLReader60))
+
+             test_seq = content_handler_test2_alternate;
+-- 
+0.0.0
+

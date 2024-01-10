@@ -1,0 +1,285 @@
+From: Haoyang Chen <chenhaoyang@uniontech.com>
+Subject: [PATCH v2] shell32: Avoid crashes caused by very long URLs.
+Message-Id: <20210528075548.17678-1-chenhaoyang@uniontech.com>
+Date: Fri, 28 May 2021 15:55:48 +0800
+
+Signed-off-by: Haoyang Chen <chenhaoyang@uniontech.com>
+---
+ dlls/shell32/shlexec.c       | 76 ++++++++++++++++++++----------------
+ dlls/shell32/tests/shlexec.c | 24 +++++++++---
+ 2 files changed, 61 insertions(+), 39 deletions(-)
+
+diff --git a/dlls/shell32/shlexec.c b/dlls/shell32/shlexec.c
+index 11111111111..11111111111 100644
+--- a/dlls/shell32/shlexec.c
++++ b/dlls/shell32/shlexec.c
+@@ -444,12 +444,17 @@ static void *SHELL_BuildEnvW( const WCHAR *path )
+ static BOOL SHELL_TryAppPathW( LPCWSTR szName, LPWSTR lpResult, WCHAR **env)
+ {
+     HKEY hkApp = 0;
+-    WCHAR buffer[1024];
++    WCHAR *buffer;
+     LONG len;
+     LONG res;
+     BOOL found = FALSE;
++    LONG bufferlen = lstrlenW(szName) + ARRAYSIZE(L".exe") + ARRAYSIZE(L"Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\") + 1;
+ 
+     if (env) *env = NULL;
++    if (!(buffer = malloc(bufferlen * sizeof(WCHAR))))
++    {
++        return FALSE;
++    }
+     wcscpy(buffer, L"Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\");
+     if (wcslen(buffer) + wcslen(szName) + 1 > ARRAY_SIZE(buffer))
+     {
+@@ -471,13 +476,14 @@ static BOOL SHELL_TryAppPathW( LPCWSTR szName, LPWSTR lpResult, WCHAR **env)
+ 
+     if (env)
+     {
+-        DWORD count = sizeof(buffer);
++        DWORD count = bufferlen * sizeof(WCHAR);
+         if (!RegQueryValueExW(hkApp, L"Path", NULL, NULL, (LPBYTE)buffer, &count) && buffer[0])
+             *env = SHELL_BuildEnvW( buffer );
+     }
+ 
+ end:
+     if (hkApp) RegCloseKey(hkApp);
++    if (buffer) free(buffer);
+     return found;
+ }
+ 
+@@ -1580,11 +1586,11 @@ static BOOL SHELL_execute( LPSHELLEXECUTEINFOW sei, SHELL_ExecuteW32 execfunc )
+         SEE_MASK_CONNECTNETDRV | SEE_MASK_FLAG_DDEWAIT |
+         SEE_MASK_UNICODE       | SEE_MASK_ASYNCOK      | SEE_MASK_HMONITOR;
+ 
+-    WCHAR parametersBuffer[1024], dirBuffer[MAX_PATH], wcmdBuffer[1024];
+-    WCHAR *wszApplicationName, *wszParameters, *wszDir, *wcmd = NULL;
++    WCHAR dirBuffer[MAX_PATH];
++    WCHAR *wcmdBuffer = NULL, *wszApplicationName, *wszParameters, *wszDir, *wcmd = NULL;
+     DWORD dwApplicationNameLen = MAX_PATH+2;
+-    DWORD parametersLen = ARRAY_SIZE(parametersBuffer);
+-    DWORD wcmdLen = ARRAY_SIZE(wcmdBuffer);
++    DWORD parametersLen = 1024;
++    DWORD wcmdLen = 1024;
+     DWORD len;
+     SHELLEXECUTEINFOW sei_tmp;	/* modifiable copy of SHELLEXECUTEINFO struct */
+     WCHAR *env;
+@@ -1625,19 +1631,21 @@ static BOOL SHELL_execute( LPSHELLEXECUTEINFOW sei, SHELL_ExecuteW32 execfunc )
+         memcpy(wszApplicationName, sei_tmp.lpFile, l*sizeof(WCHAR));
+     }
+ 
+-    wszParameters = parametersBuffer;
+     if (sei_tmp.lpParameters)
+     {
+         len = lstrlenW(sei_tmp.lpParameters) + 1;
+         if (len > parametersLen)
+-        {
+-            wszParameters = malloc(len * sizeof(WCHAR));
+             parametersLen = len;
+-        }
+-	lstrcpyW(wszParameters, sei_tmp.lpParameters);
++        wszParameters = malloc(parametersLen * sizeof(WCHAR));
++	    lstrcpyW(wszParameters, sei_tmp.lpParameters);
+     }
+     else
+-	*wszParameters = '\0';
++    {
++        wszParameters = malloc(parametersLen * sizeof(WCHAR));
++        if (!wszParameters)
++            return FALSE;
++        *wszParameters = '\0';
++    }
+ 
+     wszDir = dirBuffer;
+     if (sei_tmp.lpDirectory)
+@@ -1645,10 +1653,10 @@ static BOOL SHELL_execute( LPSHELLEXECUTEINFOW sei, SHELL_ExecuteW32 execfunc )
+         len = lstrlenW(sei_tmp.lpDirectory) + 1;
+         if (len > ARRAY_SIZE(dirBuffer))
+             wszDir = malloc(len * sizeof(WCHAR));
+-	lstrcpyW(wszDir, sei_tmp.lpDirectory);
++        lstrcpyW(wszDir, sei_tmp.lpDirectory);
+     }
+     else
+-	*wszDir = '\0';
++        *wszDir = '\0';
+ 
+     /* adjust string pointers to point to the new buffers */
+     sei_tmp.lpFile = wszApplicationName;
+@@ -1663,25 +1671,24 @@ static BOOL SHELL_execute( LPSHELLEXECUTEINFOW sei, SHELL_ExecuteW32 execfunc )
+     /* process the IDList */
+     if (sei_tmp.fMask & SEE_MASK_IDLIST)
+     {
+-	IShellExecuteHookW* pSEH;
++        IShellExecuteHookW* pSEH;
+ 
+-	HRESULT hr = SHBindToParent(sei_tmp.lpIDList, &IID_IShellExecuteHookW, (LPVOID*)&pSEH, NULL);
++        HRESULT hr = SHBindToParent(sei_tmp.lpIDList, &IID_IShellExecuteHookW, (LPVOID*)&pSEH, NULL);
+ 
+-	if (SUCCEEDED(hr))
+-	{
+-	    hr = IShellExecuteHookW_Execute(pSEH, &sei_tmp);
++	    if (SUCCEEDED(hr))
++        {
++            hr = IShellExecuteHookW_Execute(pSEH, &sei_tmp);
+ 
+-	    IShellExecuteHookW_Release(pSEH);
++            IShellExecuteHookW_Release(pSEH);
+ 
+-	    if (hr == S_OK) {
++            if (hr == S_OK) {
+                 free(wszApplicationName);
+-                if (wszParameters != parametersBuffer)
+-                    free(wszParameters);
++                free(wszParameters);
+                 if (wszDir != dirBuffer)
+                     free(wszDir);
+-		return TRUE;
++                return TRUE;
+             }
+-	}
++        }
+ 
+         SHGetPathFromIDListW(sei_tmp.lpIDList, wszApplicationName);
+         TRACE("-- idlist=%p (%s)\n", sei_tmp.lpIDList, debugstr_w(wszApplicationName));
+@@ -1715,8 +1722,7 @@ static BOOL SHELL_execute( LPSHELLEXECUTEINFOW sei, SHELL_ExecuteW32 execfunc )
+     {
+         sei->hInstApp = (HINSTANCE) 33;
+         free(wszApplicationName);
+-        if (wszParameters != parametersBuffer)
+-            free(wszParameters);
++        free(wszParameters);
+         if (wszDir != dirBuffer)
+             free(wszDir);
+         return TRUE;
+@@ -1729,8 +1735,7 @@ static BOOL SHELL_execute( LPSHELLEXECUTEINFOW sei, SHELL_ExecuteW32 execfunc )
+         if (retval <= 32 && !(sei_tmp.fMask & SEE_MASK_FLAG_NO_UI))
+             do_error_dialog(retval, sei_tmp.hwnd);
+         free(wszApplicationName);
+-        if (wszParameters != parametersBuffer)
+-            free(wszParameters);
++        free(wszParameters);
+         if (wszDir != dirBuffer)
+             free(wszDir);
+         return retval > 32;
+@@ -1798,6 +1803,11 @@ static BOOL SHELL_execute( LPSHELLEXECUTEINFOW sei, SHELL_ExecuteW32 execfunc )
+     /* Else, try to execute the filename */
+     TRACE("execute:%s,%s,%s\n", debugstr_w(wszApplicationName), debugstr_w(wszParameters), debugstr_w(wszDir));
+     lpFile = sei_tmp.lpFile;
++    wcmdLen = (lstrlenW(wszApplicationName) > wcmdLen ? lstrlenW(wszApplicationName): wcmdLen) + 1;
++    wcmdBuffer = malloc(wcmdLen * sizeof(WCHAR));
++    if (!wcmdBuffer)
++        return FALSE;
++
+     wcmd = wcmdBuffer;
+     len = lstrlenW(wszApplicationName) + 3;
+     if (sei_tmp.lpParameters[0])
+@@ -1821,12 +1831,12 @@ static BOOL SHELL_execute( LPSHELLEXECUTEINFOW sei, SHELL_ExecuteW32 execfunc )
+                                       sei, execfunc );
+     if (retval > 32) {
+         free(wszApplicationName);
+-        if (wszParameters != parametersBuffer)
+-            free(wszParameters);
++        free(wszParameters);
+         if (wszDir != dirBuffer)
+             free(wszDir);
+         if (wcmd != wcmdBuffer)
+             free(wcmd);
++        free(wcmdBuffer);
+         return TRUE;
+     }
+ 
+@@ -1884,8 +1894,8 @@ end:
+     TRACE("retval %Iu\n", retval);
+ 
+     free(wszApplicationName);
+-    if (wszParameters != parametersBuffer)
+-        free(wszParameters);
++    free(wcmdBuffer);
++    free(wszParameters);
+     if (wszDir != dirBuffer)
+         free(wszDir);
+     if (wcmd != wcmdBuffer)
+diff --git a/dlls/shell32/tests/shlexec.c b/dlls/shell32/tests/shlexec.c
+index 11111111111..11111111111 100644
+--- a/dlls/shell32/tests/shlexec.c
++++ b/dlls/shell32/tests/shlexec.c
+@@ -66,7 +66,7 @@ static BOOL is_elevated;
+ 
+ static const char* encodeA(const char* str)
+ {
+-    static char encoded[2*1024+1];
++    static char encoded[8*1024+1];
+     char*       ptr;
+     size_t      len,i;
+ 
+@@ -94,7 +94,7 @@ static unsigned decode_char(char c)
+ 
+ static char* decodeA(const char* str)
+ {
+-    static char decoded[1024];
++    static char decoded[4096];
+     char*       ptr;
+     size_t      len,i;
+ 
+@@ -115,7 +115,7 @@ static char* decodeA(const char* str)
+ static void WINAPIV __WINE_PRINTF_ATTR(2,3) childPrintf(HANDLE h, const char* fmt, ...)
+ {
+     va_list valist;
+-    char        buffer[1024];
++    char        buffer[8192];
+     DWORD       w;
+ 
+     va_start(valist, fmt);
+@@ -126,7 +126,7 @@ static void WINAPIV __WINE_PRINTF_ATTR(2,3) childPrintf(HANDLE h, const char* fm
+ 
+ static char* getChildString(const char* sect, const char* key)
+ {
+-    char        buf[1024];
++    char        buf[8192];
+     char*       ret;
+ 
+     GetPrivateProfileStringA(sect, key, "-", buf, sizeof(buf), child_file);
+@@ -348,11 +348,11 @@ static void dump_child_(const char* file, int line)
+  *
+  ***/
+ 
+-static char shell_call[2048];
++static char shell_call[4096];
+ static void WINAPIV __WINE_PRINTF_ATTR(2,3) _okShell(int condition, const char *msg, ...)
+ {
+     va_list valist;
+-    char buffer[2048];
++    char buffer[12288];
+ 
+     strcpy(buffer, shell_call);
+     strcat(buffer, " ");
+@@ -1891,6 +1891,7 @@ static void test_fileurls(void)
+ static void test_urls(void)
+ {
+     char url[MAX_PATH + 15];
++    char long_url[2048];
+     INT_PTR rc;
+ 
+     if (!create_test_class("fakeproto", FALSE))
+@@ -1963,6 +1964,17 @@ static void test_urls(void)
+     okChildString("argvA3", "URL");
+     okChildString("argvA4", "shlproto://foo/bar");
+ 
++    memset(long_url, 0, sizeof(long_url));
++    strcpy(long_url, "shlproto://foo/bar");
++    memset(long_url + strlen(long_url), 'r', sizeof(long_url) - strlen(long_url) - 5);
++    strcat(long_url, ".exe");
++
++    rc = shell_execute(NULL, long_url, NULL, NULL);
++    ok(rc > 32, "%s failed: rc=%lu\n", shell_call, rc);
++    okChildInt("argcA", 5);
++    okChildString("argvA3", "URL");
++    okChildString("argvA4", long_url);
++
+     /* Environment variables are expanded in URLs (but not in file URLs!) */
+     rc = shell_execute_ex(SEE_MASK_DOENVSUBST | SEE_MASK_FLAG_NO_UI,
+                           NULL, "shlproto://%TMPDIR%/bar", NULL, NULL, NULL);
+
+-- 
+0.0.0
+

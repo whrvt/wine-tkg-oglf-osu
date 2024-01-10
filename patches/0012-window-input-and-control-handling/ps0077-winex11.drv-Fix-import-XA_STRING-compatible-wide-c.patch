@@ -1,0 +1,27 @@
+From: Chao Long <longchao@uniontech.com>
+Subject: [PATCH] winex11.drv: Fix import XA_STRING compatible wide character.
+Message-Id: <20211217091744.11043-1-longchao@uniontech.com>
+Date: Fri, 17 Dec 2021 17:17:44 +0800
+
+Signed-off-by: Chao Long <longchao@uniontech.com>
+---
+ dlls/winex11.drv/clipboard.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/dlls/winex11.drv/clipboard.c b/dlls/winex11.drv/clipboard.c
+index 11111111111..11111111111 100644
+--- a/dlls/winex11.drv/clipboard.c
++++ b/dlls/winex11.drv/clipboard.c
+@@ -682,7 +682,7 @@ static CPTABLEINFO *get_xstring_cp(void)
+     {
+         USHORT *ptr;
+         SIZE_T nls_size;
+-        if (NtGetNlsSectionPtr( 11, 28591, NULL, (void **)&ptr, &nls_size )) return NULL;
++        if (NtGetNlsSectionPtr( 11, CP_UTF8, NULL, (void **)&ptr, &nls_size )) return NULL;
+         RtlInitCodePageTable( ptr, &cp );
+     }
+     return &cp;
+
+-- 
+0.0.0
+

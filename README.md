@@ -1,63 +1,52 @@
 # Wine to rule them all !
 
-You must be logged in to GitHub in order to download Wine or Proton nightly builds.
-
-## Wine nightly builds
-
-- wine-staging patchset applied
-
-Wine | [Arch Linux](https://github.com/Frogging-Family/wine-tkg-git/actions/workflows/wine-arch.yml) | [Fedora](https://github.com/Frogging-Family/wine-tkg-git/actions/workflows/wine-fedora.yml) | [Ubuntu](https://github.com/Frogging-Family/wine-tkg-git/actions/workflows/wine-ubuntu.yml) | [LoL](https://github.com/Frogging-Family/wine-tkg-git/actions/workflows/wine-lol.yml) |
--------------|--------|--------|-------|-------|
-
-Valve Wine | [Exp Bleeding Edge Arch Linux](https://github.com/Frogging-Family/wine-tkg-git/actions/workflows/wine-valvexbe-pacman.yml) | [Exp Bleeding Edge Other distro](https://github.com/Frogging-Family/wine-tkg-git/actions/workflows/wine-valvexbe.yml) |
--------------|--------|--------|
-
-*The Exp Bleeding Edge Other distro and LoL versions are built on Ubuntu latest, which should work fine on most distros not using years old packages*
-
-*! The LoL version should only be used for League of Legends !*
-
-## Proton nightly builds
-
-- wine-staging patchset applied
-- built on Arch current, making glibc 2.36 a requirement
-
-Proton | [Valve Exp Bleeding Edge](https://github.com/Frogging-Family/wine-tkg-git/actions/workflows/proton-valvexbe-arch-nopackage.yml) | [Wine Master](https://github.com/Frogging-Family/wine-tkg-git/actions/workflows/proton-arch-nopackage.yml) |
--------------|--------|--------|
-
-(drop the extracted folder in `/$HOME/.steam/root/compatibilitytools.d/` or, for Ubuntu/Debian based, the `/$HOME/.steam/compatibilitytools.d/` dir)
-
 ## PLEASE DO NOT REPORT BUGS ENCOUNTERED WITH THIS AT WINEHQ OR VALVESOFTWARE, REPORT HERE INSTEAD !
 
-Wine-tkg is a build-system aiming at easier custom wine builds creation. You can now easily get the "plain wine + pba + steam fix" build you've been dreaming about!
+Wine-tkg is a build-system aiming at easier custom wine builds creation.
 
-It can also make custom Proton builds with its wrapping script: https://github.com/Frogging-Family/wine-tkg-git/tree/master/proton-tkg
 
-**By default, it'll pull current wine/wine-staging git versions. You can target a specific release or commit in the .cfg if needed.**
+# Quick how-to :
 
-A comfortable selection of patches is available to you, with some of them being enabled by default for your convenience (see [this sample config file](https://github.com/Frogging-Family/wine-tkg-git/blob/master/wine-tkg-git/wine-tkg-profiles/sample-external-config.cfg) for the full list and details)
+(for dependencies, see the [wiki page](https://github.com/Tk-Glitch/PKGBUILDS/wiki/wine-tkg-git) )
 
-An ever evolving selection of staging, experimental and/or hacky patches are also available [in the community-patches](https://github.com/Frogging-Family/community-patches/tree/master/wine-tkg-git)
+**Independently of the distro used, you'll want MinGW compiler to build recent wine as it fails to build more often than not without it these days.**
 
-**Can be built with your own patches - See [README in wine-tkg-git/wine-tkg-userpatches](https://github.com/Frogging-Family/wine-tkg-git/blob/master/wine-tkg-git/wine-tkg-userpatches/README.md) for instructions**
 
-### Generated Wine-tkg sources (staging-based):
- - Wine-tkg : https://github.com/Tk-Glitch/wine-tkg
- - Proton-tkg : https://github.com/Tk-Glitch/wine-proton-tkg
+## Download the source :
 
-Wine : https://github.com/wine-mirror/wine
+ * Clone the repo (allows you to use `git pull` to get updates) :
+```
+git clone https://github.com/Frogging-Family/wine-tkg-git.git
+```
 
-Wine-staging : https://github.com/wine-staging/wine-staging
+## Configuration/customization :
 
-Wine esync : https://github.com/zfigura/wine/tree/esync
+If you want to customize the patches and features of your builds, you can find basic settings in [customization.cfg](https://github.com/Frogging-Family/wine-tkg-git/blob/master/wine-tkg-git/customization.cfg) and advanced settings in [wine-tkg-profiles/advanced-customization.cfg](https://github.com/Frogging-Family/wine-tkg-git/blob/master/wine-tkg-git/wine-tkg-profiles/advanced-customization.cfg).
 
-Wine fsync : https://github.com/zfigura/wine/tree/fsync
+You can also create an external configuration file that will contain all settings in a centralized way and survive repo updates. A sample file for this can be found [here](https://github.com/Frogging-Family/wine-tkg-git/blob/master/wine-tkg-git/wine-tkg-profiles/sample-external-config.cfg). The default path for this file is `~/.config/frogminer/wine-tkg.cfg` and can be changed in `wine-tkg-profiles/advanced-customization.cfg` with the `_EXT_CONFIG_PATH` option.
 
-Proton : https://github.com/ValveSoftware/Proton
 
-Wine-pba (Only working correctly up to 3.18 - Force disabled on newer wine bases due to regressions) : https://github.com/acomminos/wine-pba
+## Building :
 
-Thanks to @Firerat and @bobwya for their rebase work :
-- https://gitlab.com/Firer4t/wine-pba
-- https://github.com/bobwya/gentoo-wine-pba
+### For Arch (and other pacman/makepkg distros) :
 
-For Gallium 9 support, use https://github.com/iXit/wine-nine-standalone (available from winetricks and AUR) - Legacy nine support can still be turned on if you're building a 4.1 base or older.
+ * From the `wine-tkg-git` directory (where the PKGBUILD is located), run the following command in a terminal to start the building process :
+```
+makepkg -si
+```
+
+### For other distros (make sure to check the [wiki page](https://github.com/Tk-Glitch/PKGBUILDS/wiki/wine-tkg-git)) :
+
+**UNTESTED FOR THIS SPECIFIC FORK**
+
+ * From the `wine-tkg-git` directory (where the PKGBUILD is located), run the following command in a terminal to start the building process :
+```
+./non-makepkg-build.sh
+```
+**Your build will be found in the `PKGBUILD/wine-tkg-git/non-makepkg-builds` dir (independently of the chosen configuration)**
+
+## Credit :
+
+A special thank you to [Torge Matthies (openglfreak)](https://github.com/openglfreak) for his hard work in compiling this large set of Wine patches. These are located in the `patches` directory.
+
+The repo containing his patches, config, and renaming scripts can be found at https://github.com/openglfreak/wine-tkg-userpatches. They are are taken from the `tmp8` branch, for wine-staging 8.18.

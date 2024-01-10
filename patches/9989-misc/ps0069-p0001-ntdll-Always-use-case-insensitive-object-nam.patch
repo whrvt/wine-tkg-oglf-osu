@@ -1,0 +1,25 @@
+From 847c666156a8bbf16782ecc9d702763d2115fb62 Mon Sep 17 00:00:00 2001
+From: Zebediah Figura <z.figura12@gmail.com>
+Date: Sun, 1 Nov 2020 15:04:43 -0600
+Subject: [PATCH 1/1] ntdll: Always use case-insensitive object name lookup in
+ NtCreateFile().
+
+---
+ dlls/ntdll/unix/file.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/dlls/ntdll/unix/file.c b/dlls/ntdll/unix/file.c
+index 11111111111..11111111111 100644
+--- a/dlls/ntdll/unix/file.c
++++ b/dlls/ntdll/unix/file.c
+@@ -5142,6 +5142,7 @@ NTSTATUS WINAPI NtCreateFile( HANDLE *handle, ACCESS_MASK access, OBJECT_ATTRIBU
+     if (alloc_size) FIXME( "alloc_size not supported\n" );
+ 
+     new_attr = *attr;
++    new_attr.Attributes |= OBJ_CASE_INSENSITIVE;
+     if (options & FILE_OPEN_BY_FILE_ID)
+     {
+         status = file_id_to_unix_file_name( &new_attr, &unix_name, &nt_name );
+-- 
+0.0.0
+

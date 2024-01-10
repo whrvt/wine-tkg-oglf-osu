@@ -1,0 +1,277 @@
+From 39d45e0585d4107f379b18913150b78a6b550d17 Mon Sep 17 00:00:00 2001
+From: Torge Matthies <tmatthies@codeweavers.com>
+Date: Tue, 22 Nov 2022 18:18:21 +0100
+Subject: [PATCH 09/11] winex11.drv: Route kernel callbacks through user32.
+
+Signed-off-by: Torge Matthies <tmatthies@codeweavers.com>
+---
+ dlls/winex11.drv/dllmain.c     | 14 +++-----------
+ dlls/winex11.drv/event.c       | 12 ++++++++----
+ dlls/winex11.drv/unixlib.h     | 29 ++++++++++++++++-------------
+ dlls/winex11.drv/x11drv.h      |  4 ++--
+ dlls/winex11.drv/x11drv_main.c | 14 ++++++++++----
+ 5 files changed, 39 insertions(+), 34 deletions(-)
+
+diff --git a/dlls/winex11.drv/dllmain.c b/dlls/winex11.drv/dllmain.c
+index 11111111111..11111111111 100644
+--- a/dlls/winex11.drv/dllmain.c
++++ b/dlls/winex11.drv/dllmain.c
+@@ -40,8 +40,7 @@ static NTSTATUS WINAPI x11drv_callback( void *arg, ULONG size )
+     return callback_funcs[params->id]( params->arg );
+ }
+ 
+-typedef NTSTATUS (WINAPI *kernel_callback)( void *params, ULONG size );
+-static const kernel_callback kernel_callbacks[] =
++static const struct x11drv_client_funcs client_funcs =
+ {
+     x11drv_callback,
+     x11drv_dnd_enter_event,
+@@ -50,16 +49,13 @@ static const kernel_callback kernel_callbacks[] =
+     x11drv_systray_change_owner,
+ };
+ 
+-C_ASSERT( NtUserDriverCallbackFirst + ARRAYSIZE(kernel_callbacks) == client_func_last );
+-
+-
+ BOOL WINAPI DllMain( HINSTANCE instance, DWORD reason, void *reserved )
+ {
+-    void **callback_table;
+     struct init_params params =
+     {
+         foreign_window_proc,
+         &show_systray,
++        &client_funcs,
+     };
+ 
+     if (reason != DLL_PROCESS_ATTACH) return TRUE;
+@@ -67,11 +63,7 @@ BOOL WINAPI DllMain( HINSTANCE instance, DWORD reason, void *reserved )
+     DisableThreadLibraryCalls( instance );
+     x11drv_module = instance;
+     if (__wine_init_unix_call()) return FALSE;
+-    if (X11DRV_CALL( init, &params )) return FALSE;
+-
+-    callback_table = NtCurrentTeb()->Peb->KernelCallbackTable;
+-    memcpy( callback_table + NtUserDriverCallbackFirst, kernel_callbacks, sizeof(kernel_callbacks) );
+-    return TRUE;
++    return !X11DRV_CALL( init, &params );
+ }
+ 
+ /***********************************************************************
+diff --git a/dlls/winex11.drv/event.c b/dlls/winex11.drv/event.c
+index 11111111111..11111111111 100644
+--- a/dlls/winex11.drv/event.c
++++ b/dlls/winex11.drv/event.c
+@@ -728,8 +728,9 @@ static void handle_manager_message( HWND hwnd, XEvent *xev )
+ 
+         TRACE( "new owner %lx\n", event->data.l[2] );
+ 
++        params.cbparams.func = (ULONG_PTR)client_funcs.systray_change_owner;
+         params.event_handle = (UINT_PTR)event;
+-        x11drv_client_func( client_func_systray_change_owner, &params, sizeof(params) );
++        x11drv_client_func( &params.cbparams, sizeof(params) );
+     }
+ }
+ 
+@@ -1787,8 +1788,9 @@ static HWND find_drop_window( HWND hQueryWnd, LPPOINT lpPt )
+ static void post_drop( HWND hwnd, struct dnd_post_drop_params *params, ULONG size )
+ {
+     DROPFILES *drop = (void*)params->drop_files;
++    params->cbparams.func = (ULONG_PTR)client_funcs.dnd_post_drop;
+     drop->fWide = HandleToUlong( hwnd ); /* abuse fWide to pass window handle */
+-    x11drv_client_func( client_func_dnd_post_drop, drop, size );
++    x11drv_client_func( &params->cbparams, size );
+ }
+ 
+ /**********************************************************************
+@@ -2059,7 +2061,8 @@ static void handle_xdnd_enter_event( HWND hWnd, XEvent *xev )
+                                   xdndtypes, count, &size );
+     if (data)
+     {
+-        x11drv_client_func( client_func_dnd_enter_event, data, size );
++        data->cbparams.func = (ULONG_PTR)client_funcs.dnd_enter_event;
++        x11drv_client_func( &data->cbparams, size );
+         free( data );
+     }
+ 
+@@ -2111,11 +2114,12 @@ static void handle_xdnd_position_event( HWND hwnd, XEvent *xev )
+     XClientMessageEvent e;
+     UINT effect;
+ 
++    params.cbparams.func = (ULONG_PTR)client_funcs.dnd_position_event;
+     params.hwnd = HandleToUlong( hwnd );
+     params.point = root_to_virtual_screen( event->data.l[2] >> 16, event->data.l[2] & 0xFFFF );
+     params.effect = effect = xdnd_action_to_drop_effect( event->data.l[4] );
+ 
+-    effect = x11drv_client_func( client_func_dnd_position_event, &params, sizeof(params) );
++    effect = x11drv_client_func( &params.cbparams, sizeof(params) );
+ 
+     TRACE( "actionRequested(%ld) chosen(0x%x) at x(%d),y(%d)\n",
+            event->data.l[4], effect, (int)params.point.x, (int)params.point.y );
+diff --git a/dlls/winex11.drv/unixlib.h b/dlls/winex11.drv/unixlib.h
+index 11111111111..11111111111 100644
+--- a/dlls/winex11.drv/unixlib.h
++++ b/dlls/winex11.drv/unixlib.h
+@@ -35,11 +35,22 @@ enum x11drv_funcs
+ 
+ #define X11DRV_CALL(func, params) WINE_UNIX_CALL( unix_ ## func, params )
+ 
++/* driver client callbacks called through NtUserDispatchCallback interface */
++struct x11drv_client_funcs
++{
++    user32_callback_func callback;
++    user32_callback_func dnd_enter_event;
++    user32_callback_func dnd_position_event;
++    user32_callback_func dnd_post_drop;
++    user32_callback_func systray_change_owner;
++};
++
+ /* x11drv_init params */
+ struct init_params
+ {
+     WNDPROC foreign_window_proc;
+     BOOL *show_systray;
++    const struct x11drv_client_funcs *client_funcs;
+ };
+ 
+ struct systray_dock_params
+@@ -66,19 +77,6 @@ struct xim_preedit_state_params
+     BOOL open;
+ };
+ 
+-/* driver client callbacks exposed with KernelCallbackTable interface */
+-enum x11drv_client_funcs
+-{
+-    client_func_callback = NtUserDriverCallbackFirst,
+-    client_func_dnd_enter_event,
+-    client_func_dnd_position_event,
+-    client_func_dnd_post_drop,
+-    client_func_systray_change_owner,
+-    client_func_last
+-};
+-
+-C_ASSERT( client_func_last <= NtUserDriverCallbackLast + 1 );
+-
+ /* simplified interface for client callbacks requiring only a single UINT parameter */
+ enum client_callback
+ {
+@@ -90,6 +88,7 @@ enum client_callback
+ /* x11drv_callback params */
+ struct client_callback_params
+ {
++    struct user32_callback_params cbparams;
+     UINT id;
+     UINT arg;
+ };
+@@ -97,6 +96,7 @@ struct client_callback_params
+ /* x11drv_dnd_enter_event and x11drv_dnd_post_drop params */
+ struct format_entry
+ {
++    struct user32_callback_params cbparams;
+     UINT format;
+     UINT size;
+     char data[1];
+@@ -105,6 +105,7 @@ struct format_entry
+ /* x11drv_dnd_position_event params */
+ struct dnd_position_event_params
+ {
++    struct user32_callback_params cbparams;
+     ULONG hwnd;
+     POINT point;
+     DWORD effect;
+@@ -112,10 +113,12 @@ struct dnd_position_event_params
+ 
+ struct dnd_post_drop_params
+ {
++    struct user32_callback_params cbparams;
+     char drop_files[1];
+ };
+ 
+ struct systray_change_owner_params
+ {
++    struct user32_callback_params cbparams;
+     UINT64 event_handle;
+ };
+diff --git a/dlls/winex11.drv/x11drv.h b/dlls/winex11.drv/x11drv.h
+index 11111111111..11111111111 100644
+--- a/dlls/winex11.drv/x11drv.h
++++ b/dlls/winex11.drv/x11drv.h
+@@ -439,6 +439,7 @@ struct x11drv_ewmh_data
+     int has__net_wm_window_type_desktop : 1;
+ };
+ 
++extern struct x11drv_client_funcs client_funcs DECLSPEC_HIDDEN;
+ extern XVisualInfo default_visual DECLSPEC_HIDDEN;
+ extern XVisualInfo argb_visual DECLSPEC_HIDDEN;
+ extern Colormap default_colormap DECLSPEC_HIDDEN;
+@@ -895,8 +896,7 @@ extern NTSTATUS x11drv_tablet_get_packet( void *arg ) DECLSPEC_HIDDEN;
+ extern NTSTATUS x11drv_tablet_load_info( void *arg ) DECLSPEC_HIDDEN;
+ extern NTSTATUS x11drv_tablet_info( void *arg ) DECLSPEC_HIDDEN;
+ 
+-extern NTSTATUS x11drv_client_func( enum x11drv_client_funcs func, const void *params,
+-                                    ULONG size ) DECLSPEC_HIDDEN;
++extern NTSTATUS x11drv_client_func( const struct user32_callback_params *cbparams, ULONG size ) DECLSPEC_HIDDEN;
+ extern NTSTATUS x11drv_client_call( enum client_callback func, UINT arg ) DECLSPEC_HIDDEN;
+ 
+ /* GDI helpers */
+diff --git a/dlls/winex11.drv/x11drv_main.c b/dlls/winex11.drv/x11drv_main.c
+index 11111111111..11111111111 100644
+--- a/dlls/winex11.drv/x11drv_main.c
++++ b/dlls/winex11.drv/x11drv_main.c
+@@ -62,6 +62,8 @@ WINE_DEFAULT_DEBUG_CHANNEL(x11drv);
+ WINE_DECLARE_DEBUG_CHANNEL(synchronous);
+ WINE_DECLARE_DEBUG_CHANNEL(winediag);
+ 
++struct x11drv_client_funcs client_funcs;
++
+ XVisualInfo default_visual = { 0 };
+ XVisualInfo argb_visual = { 0 };
+ Colormap default_colormap = None;
+@@ -920,6 +922,8 @@ static NTSTATUS x11drv_init( void *arg )
+     dlopen( SONAME_LIBXEXT, RTLD_NOW|RTLD_GLOBAL );
+ #endif
+ 
++    client_funcs = *params->client_funcs;
++
+     setup_options();
+ 
+     /* Open display */
+@@ -1576,18 +1580,18 @@ done:
+     return status;
+ }
+ 
+-NTSTATUS x11drv_client_func( enum x11drv_client_funcs id, const void *params, ULONG size )
++NTSTATUS x11drv_client_func( const struct user32_callback_params *cbparams, ULONG size )
+ {
+     void *ret_ptr;
+     ULONG ret_len;
+-    return KeUserModeCallback( id, params, size, &ret_ptr, &ret_len );
++    return KeUserModeCallback( NtUserDispatchCallback, cbparams, size, &ret_ptr, &ret_len );
+ }
+ 
+ 
+ NTSTATUS x11drv_client_call( enum client_callback func, UINT arg )
+ {
+-    struct client_callback_params params = { .id = func, .arg = arg };
+-    return x11drv_client_func( client_func_callback, &params, sizeof(params) );
++    struct client_callback_params params = { { (ULONG_PTR)client_funcs.callback }, .id = func, .arg = arg };
++    return x11drv_client_func( &params.cbparams, sizeof(params) );
+ }
+ 
+ 
+@@ -1616,11 +1620,13 @@ static NTSTATUS x11drv_wow64_init( void *arg )
+     {
+         ULONG foreign_window_proc;
+         ULONG show_systray;
++        ULONG client_funcs;
+     } *params32 = arg;
+     struct init_params params;
+ 
+     params.foreign_window_proc = UlongToPtr( params32->foreign_window_proc );
+     params.show_systray = UlongToPtr( params32->show_systray );
++    params.client_funcs = UlongToPtr( params32->client_funcs );
+     return x11drv_init( &params );
+ }
+ 
+-- 
+0.0.0
+
