@@ -986,7 +986,7 @@ _prepare() {
 
     source "$_where"/wine-tkg-patches/proton/valve_proton_fullscreen_hack/valve_proton_fullscreen_hack
     source "$_where"/wine-tkg-patches/misc/childwindow/childwindow-proton
-    #source "$_where"/wine-tkg-patches/proton/shared-gpu-resources/shared-gpu-resources # broken patchset on any version
+    source "$_where"/wine-tkg-patches/proton/shared-gpu-resources/shared-gpu-resources
     source "$_where"/wine-tkg-patches/proton/proton-rawinput/proton-rawinput
     source "$_where"/wine-tkg-patches/misc/winevulkan/winevulkan
     source "$_where"/wine-tkg-patches/game-specific/overwatch-mfstub/overwatch-mfstub
@@ -1087,9 +1087,6 @@ _polish() {
 
 	echo -e "\nRunning make_vulkan" >> "$_where"/prepare.log && dlls/winevulkan/make_vulkan >> "$_where"/prepare.log 2>&1
 	tools/make_requests
-	if [ -e tools/make_specfiles ]; then
-	  tools/make_specfiles
-	fi
 	autoreconf -fiv
 
 	# wine late user patches - Applied after make_vulkan/make_requests/autoreconf

@@ -117,9 +117,7 @@ if [ "$_use_staging" = "true" ]; then
                     -W wined3d-Indexed_Vertex_Blending \
                     -W winepulse-PulseAudio_Support)
     if [[ "$_LOCAL_PRESET" = valve-ex* ]]; then
-      _staging_args+=(-W shell32-registry-lookup-app \
-                      -W d3dx9_36-D3DXStubs \
-                      -W ntdll-ext4-case-folder)
+      _staging_args+=(-W shell32-registry-lookup-app)
     fi
   else
     _staging_args+=(-W winex11-_NET_ACTIVE_WINDOW \
@@ -243,7 +241,6 @@ _proton_staging() {
       patch -Np1 < "${srcdir}"/"$_stgsrcdir"/patches/winepulse-PulseAudio_Support/0001-winepulse.drv-Use-a-separate-mainloop-and-ctx-for-pu.patch
       if [[ "$_LOCAL_PRESET" = valve-ex* ]]; then
         patch -Np1 < "$_where"/wine-tkg-patches/hotfixes/valve/staging-hotfixes/"$_proton_target"/shell32-registry-lookup-app/0001-shell32-Append-.exe-when-registry-lookup-fails-first.patch
-        patch -Np1 < "${srcdir}"/"$_stgsrcdir"/patches/ntdll-ext4-case-folder/0002-ntdll-server-Mark-drive_c-as-case-insensitive-when-c.patch >> "$_where"/prepare.log
       fi
     fi
 
@@ -272,11 +269,7 @@ _proton_staging() {
     patch -Np1 < "$_where"/wine-tkg-patches/hotfixes/valve/staging-hotfixes/"$_proton_target"/windows.networking.connectivity-new-dll/0006-windows.networking.connectivity-Registry-DLL.patch
     patch -Np1 < "$_where"/wine-tkg-patches/hotfixes/valve/staging-hotfixes/"$_proton_target"/windows.networking.connectivity-new-dll/0007-windows.networking.connectivity-Implement-INetworkIn.patch
     patch -Np1 < "$_where"/wine-tkg-patches/hotfixes/valve/staging-hotfixes/"$_proton_target"/windows.networking.connectivity-new-dll/0008-windows.networking.connectivity-IConnectionProfile-G.patch
-    if [[ "$_plain_version" = *_8.0 ]] && [[ "$_LOCAL_PRESET" = valve-ex* ]]; then
-      patch -Np1 < "$_where"/wine-tkg-patches/hotfixes/valve/staging-hotfixes/"$_proton_target"/winex11-Vulkan_support/0001-winex11-Specify-a-default-vulkan-driver-if-one-not-f-be.patch
-    else
-      patch -Np1 < "$_where"/wine-tkg-patches/hotfixes/valve/staging-hotfixes/"$_proton_target"/winex11-Vulkan_support/0001-winex11-Specify-a-default-vulkan-driver-if-one-not-f.patch
-    fi
+    patch -Np1 < "$_where"/wine-tkg-patches/hotfixes/valve/staging-hotfixes/"$_proton_target"/winex11-Vulkan_support/0001-winex11-Specify-a-default-vulkan-driver-if-one-not-f.patch
     patch -Np1 < "$_where"/wine-tkg-patches/hotfixes/valve/staging-hotfixes/"$_proton_target"/xactengine-initial/0001-x3daudio1_7-Create-import-library.patch
 
     if [[ "$_plain_version" != *_8.0 ]]; then
