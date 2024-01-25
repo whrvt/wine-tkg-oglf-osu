@@ -1,4 +1,8 @@
 _exports_32() {
+  # align stack boundary on i686-w64-mingw32-gcc to work around https://gcc.gnu.org/bugzilla/show_bug.cgi?id=110273 
+  # introduced in wine change https://source.winehq.org/git/wine.git/commitdiff/62173699c38453777c7d5638ed2e779790506b75
+  # fixes native builds with avx512f support (e.g. -march=znver4)
+  CROSSCFLAGS+=" -mincoming-stack-boundary=2"
   if [ "$_NOCCACHE" != "true" ]; then
 	if [ -e /usr/bin/ccache ]; then
 		export CC="ccache gcc"

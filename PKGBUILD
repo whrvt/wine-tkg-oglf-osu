@@ -5,7 +5,7 @@ pkgver=0
 
 # workaround for pkgrel overwritten on regen
 pkgrel=1
-eval pkgrel=327
+eval pkgrel=328
 
 _esyncsrcdir='esync'
 export _where="$PWD" # track basedir as different Arch based distros are moving srcdir around
