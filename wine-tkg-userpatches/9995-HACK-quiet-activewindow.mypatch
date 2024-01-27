@@ -1,0 +1,13 @@
+diff --git a/dlls/winex11.drv/window.c b/dlls/winex11.drv/window.c
+index 61787bed..87c70944 100644
+--- a/dlls/winex11.drv/window.c
++++ b/dlls/winex11.drv/window.c
+@@ -2266,7 +2266,7 @@ BOOL X11DRV_CreateWindow( HWND hwnd )
+             if (ewmh.has__net_active_window)
+                 XSelectInput( data->display, DefaultRootWindow( data->display ), PropertyChangeMask );
+             else if (!is_virtual_desktop())
+-                ERR("_NET_ACTIVE_WINDOW is not supported, and virtual desktop not enabled, unable to track focus globally!\n");
++                TRACE("_NET_ACTIVE_WINDOW is not supported, and virtual desktop not enabled, unable to track focus globally!\n");
+         }
+ 
+         /* create the cursor clipping window */

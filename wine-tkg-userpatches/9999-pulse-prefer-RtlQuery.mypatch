@@ -1,0 +1,109 @@
+# diff --git a/dlls/winepulse.drv/pulse.c b/dlls/winepulse.drv/pulse.c
+# index bf0451eb629..9f88ae5ca5d 100644
+# --- a/dlls/winepulse.drv/pulse.c
+# +++ b/dlls/winepulse.drv/pulse.c
+# @@ -33,6 +33,7 @@
+#  #include "ntstatus.h"
+#  #define WIN32_NO_STATUS
+#  #include "winternl.h"
+# +#include "ddk/wdm.h"
+ 
+#  #include "mmdeviceapi.h"
+#  #include "initguid.h"
+# @@ -48,6 +49,8 @@
+ 
+#  WINE_DEFAULT_DEBUG_CHANNEL(pulse);
+ 
+# +static const struct _KUSER_SHARED_DATA *user_shared_data = (struct _KUSER_SHARED_DATA *)0x7ffe0000;
+# +
+#  enum phys_device_bus_type {
+#      phys_device_bus_invalid = -1,
+#      phys_device_bus_pci,
+# @@ -363,7 +363,7 @@ static void pulse_underflow_callback(pa_stream *s, void *userdata)
+#  {
+#      struct pulse_stream *stream = userdata;
+#      WARN("%p: Underflow\n", userdata);
+# -    stream->just_underran = TRUE;
+# +    stream->just_underran = FALSE;
+#  }
+ 
+#  static void pulse_started_callback(pa_stream *s, void *userdata)
+# @@ -1233,7 +1233,7 @@ static HRESULT pulse_spec_from_waveformat(struct pulse_stream *stream, const WAV
+ 
+#  static HRESULT pulse_stream_connect(struct pulse_stream *stream, const char *pulse_name, UINT32 period_bytes)
+#  {
+# -    pa_stream_flags_t flags = PA_STREAM_START_CORKED | PA_STREAM_START_UNMUTED | PA_STREAM_ADJUST_LATENCY;
+# +    pa_stream_flags_t flags = PA_STREAM_START_CORKED|PA_STREAM_START_UNMUTED|PA_STREAM_AUTO_TIMING_UPDATE|PA_STREAM_INTERPOLATE_TIMING|PA_STREAM_EARLY_REQUESTS;
+#      int ret;
+#      char buffer[64];
+#      static LONG number;
+# @@ -1503,8 +1506,7 @@ static void pulse_read(struct pulse_stream *stream)
+#              {
+#                  stream->held_bytes += stream->period_bytes;
+#              }
+# -            NtQueryPerformanceCounter(&stamp, &freq);
+# -            p->qpcpos = (stamp.QuadPart * (INT64)10000000) / freq.QuadPart;
+# +            p->qpcpos = user_shared_data->TickCount.LowPart;
+#              p->discont = 0;
+#              list_remove(&p->entry);
+#              list_add_tail(&stream->packet_filled_head, &p->entry);
+# @@ -2412,8 +2414,7 @@ static NTSTATUS pulse_get_position(void *args)
+#      if (params->qpctime)
+#      {
+#          LARGE_INTEGER stamp, freq;
+# -        NtQueryPerformanceCounter(&stamp, &freq);
+# -        *params->qpctime = (stamp.QuadPart * (INT64)10000000) / freq.QuadPart;
+# +        *params->qpctime = user_shared_data->TickCount.LowPart;
+#      }
+ 
+#      params->result = S_OK;
+
+# "new" pulse stuff above, wip
+diff --git a/dlls/winepulse.drv/mmdevdrv.c b/dlls/winepulse.drv/mmdevdrv.c
+index 2ca2350c..5c269030 100644
+--- a/dlls/winepulse.drv/mmdevdrv.c
++++ b/dlls/winepulse.drv/mmdevdrv.c
+@@ -41,6 +41,8 @@
+ #include "wine/debug.h"
+ #include "wine/unicode.h"
+ #include "wine/list.h"
++#include "winternl.h"
++#include "ddk/wdm.h"
+ 
+ #include "ole2.h"
+ #include "dshow.h"
+@@ -59,6 +61,8 @@
+ 
+ WINE_DEFAULT_DEBUG_CHANNEL(pulse);
+ 
++static const struct _KUSER_SHARED_DATA *user_shared_data = (struct _KUSER_SHARED_DATA *)0x7ffe0000;
++
+ #define NULL_PTR_ERR MAKE_HRESULT(SEVERITY_ERROR, FACILITY_WIN32, RPC_X_NULL_REF_POINTER)
+ 
+ /* From <dlls/mmdevapi/mmdevapi.h> */
+@@ -993,9 +997,9 @@ static void pulse_rd_loop(ACImpl *This, size_t bytes)
+             This->pad += This->capture_period;
+             assert(This->pad <= This->bufsize_bytes);
+         }
+-        QueryPerformanceCounter(&stamp);
+-        QueryPerformanceFrequency(&freq);
+-        p->qpcpos = (stamp.QuadPart * (INT64)10000000) / freq.QuadPart;
++        //QueryPerformanceCounter(&stamp);
++        //QueryPerformanceFrequency(&freq);
++        p->qpcpos = user_shared_data->u.TickCount.LowPart;
+         p->discont = 0;
+         list_remove(&p->entry);
+         list_add_tail(&This->packet_filled_head, &p->entry);
+@@ -2709,9 +2713,9 @@ static HRESULT WINAPI AudioClock_GetPosition(IAudioClock *iface, UINT64 *pos,
+ 
+     if (qpctime) {
+         LARGE_INTEGER stamp, freq;
+-        QueryPerformanceCounter(&stamp);
+-        QueryPerformanceFrequency(&freq);
+-        *qpctime = (stamp.QuadPart * (INT64)10000000) / freq.QuadPart;
++        //QueryPerformanceCounter(&stamp);
++        //QueryPerformanceFrequency(&freq);
++        *qpctime = user_shared_data->u.TickCount.LowPart;
+     }
+ 
+     return S_OK;
