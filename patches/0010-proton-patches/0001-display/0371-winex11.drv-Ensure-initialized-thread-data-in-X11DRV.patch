@@ -1,0 +1,27 @@
+From 3aeef946d5e24de9f9f47f94e3b316fc720d8749 Mon Sep 17 00:00:00 2001
+From: Etaash Mathamsetty <etaash.mathamsetty@gmail.com>
+Date: Mon, 16 Oct 2023 15:33:54 -0400
+Subject: [PATCH 0371/1306] winex11.drv: Ensure initialized thread data in
+ X11DRV_get_ic.
+
+Link: https://github.com/ValveSoftware/wine/pull/201
+---
+ dlls/winex11.drv/xim.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/dlls/winex11.drv/xim.c b/dlls/winex11.drv/xim.c
+index 209d63f0402..b4d675dc446 100644
+--- a/dlls/winex11.drv/xim.c
++++ b/dlls/winex11.drv/xim.c
+@@ -501,7 +501,7 @@ XIC X11DRV_get_ic( HWND hwnd )
+     XIC ret;
+ 
+     if (!(data = get_win_data( hwnd ))) return 0;
+-    x11drv_thread_data()->last_xic_hwnd = hwnd;
++    x11drv_init_thread_data()->last_xic_hwnd = hwnd;
+     if (!(ret = data->xic) && (xim = x11drv_thread_data()->xim))
+         ret = data->xic = xic_create( xim, hwnd, data->whole_window );
+     release_win_data( data );
+-- 
+2.43.2
+

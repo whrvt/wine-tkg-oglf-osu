@@ -1,0 +1,185 @@
+From 11be889f0585c1ea0555964fbe06d4c7709985f4 Mon Sep 17 00:00:00 2001
+From: whrvt <william@horvath.blog>
+Date: Mon, 26 Feb 2024 20:12:41 -0800
+Subject: [PATCH 5/6] Revert "server: Stop using union rawinput in hw_input_t."
+
+This reverts commit f86cca3897463b5c589e4f6bc18378ae1d53083f.
+---
+ dlls/win32u/message.c          | 11 ++++++-----
+ include/wine/server_protocol.h | 11 ++---------
+ server/protocol.def            | 11 ++---------
+ server/queue.c                 | 18 +++++++++---------
+ server/trace.c                 | 32 ++++++++++++++++++++++++--------
+ 5 files changed, 43 insertions(+), 40 deletions(-)
+
+diff --git a/dlls/win32u/message.c b/dlls/win32u/message.c
+index 08222fd460f..068f258e103 100644
+--- a/dlls/win32u/message.c
++++ b/dlls/win32u/message.c
+@@ -3549,14 +3549,15 @@ NTSTATUS send_hardware_message( HWND hwnd, const INPUT *input, const RAWINPUT *r
+             {
+             case WM_INPUT:
+             case WM_INPUT_DEVICE_CHANGE:
++                req->input.hw.rawinput.type = rawinput->header.dwType;
+                 switch (rawinput->header.dwType)
+                 {
+                 case RIM_TYPEHID:
+-                    req->input.hw.wparam = rawinput->header.wParam;
+-                    req->input.hw.hid.device = HandleToUlong( rawinput->header.hDevice );
+-                    req->input.hw.hid.usage = MAKELONG(hid_usage, hid_usage_page);
+-                    req->input.hw.hid.count = rawinput->data.hid.dwCount;
+-                    req->input.hw.hid.length = rawinput->data.hid.dwSizeHid;
++                    req->input.hw.rawinput.hid.device = HandleToUlong( rawinput->header.hDevice );
++                    req->input.hw.rawinput.hid.param = rawinput->header.wParam;
++                    req->input.hw.rawinput.hid.usage = MAKELONG(hid_usage, hid_usage_page);
++                    req->input.hw.rawinput.hid.count = rawinput->data.hid.dwCount;
++                    req->input.hw.rawinput.hid.length = rawinput->data.hid.dwSizeHid;
+                     wine_server_add_data( req, rawinput->data.hid.bRawData,
+                                           rawinput->data.hid.dwCount * rawinput->data.hid.dwSizeHid );
+                     break;
+diff --git a/include/wine/server_protocol.h b/include/wine/server_protocol.h
+index 96a21e25e09..1d475fdbbfd 100644
+--- a/include/wine/server_protocol.h
++++ b/include/wine/server_protocol.h
+@@ -343,15 +343,8 @@ typedef union
+     {
+         int            type;
+         unsigned int   msg;
+-        lparam_t       wparam;
+         lparam_t       lparam;
+-        struct
+-        {
+-            unsigned int device;
+-            unsigned int usage;
+-            unsigned int count;
+-            unsigned int length;
+-        } hid;
++        union rawinput rawinput;
+     } hw;
+ } hw_input_t;
+ 
+# @@ -6512,7 +6505,7 @@ union generic_reply
+ 
+#  /* ### protocol_version begin ### */
+ 
+# -#define SERVER_PROTOCOL_VERSION 790
+# +#define SERVER_PROTOCOL_VERSION 789
+ 
+#  /* ### protocol_version end ### */
+ 
+diff --git a/server/protocol.def b/server/protocol.def
+index 6ffed5deb01..d00f037afb9 100644
+--- a/server/protocol.def
++++ b/server/protocol.def
+@@ -359,15 +359,8 @@ typedef union
+     {
+         int            type;    /* INPUT_HARDWARE */
+         unsigned int   msg;     /* message code */
+-        lparam_t       wparam;  /* parameters */
+-        lparam_t       lparam;  /* parameters */
+-        struct
+-        {
+-            unsigned int device;  /* rawinput device index */
+-            unsigned int usage;   /* HID device usage */
+-            unsigned int count;   /* HID report count */
+-            unsigned int length;  /* HID report length */
+-        } hid;
++        lparam_t       lparam;  /* message param */
++        union rawinput rawinput;/* rawinput message data */
+     } hw;
+ } hw_input_t;
+ 
+diff --git a/server/queue.c b/server/queue.c
+index dad51e06ceb..349ad51e0f6 100644
+--- a/server/queue.c
++++ b/server/queue.c
+@@ -2130,8 +2130,13 @@ static void queue_custom_hardware_message( struct desktop *desktop, user_handle_
+         raw_msg.source     = source;
+         raw_msg.time       = get_tick_count();
+         raw_msg.message    = input->hw.msg;
+-        raw_msg.hid_report = get_req_data();
+-        report_size = input->hw.hid.length * input->hw.hid.count;
++
++        if (input->hw.rawinput.type == RIM_TYPEHID)
++        {
++            raw_msg.hid_report = get_req_data();
++            report_size = input->hw.rawinput.hid.length * input->hw.rawinput.hid.count;
++        }
++
+         if (report_size != get_req_data_size())
+         {
+             set_error( STATUS_INVALID_PARAMETER );
+@@ -2139,13 +2144,8 @@ static void queue_custom_hardware_message( struct desktop *desktop, user_handle_
+         }
+ 
+         msg_data = &raw_msg.data;
+-        msg_data->size = sizeof(*msg_data) + report_size;
+-        msg_data->rawinput.hid.type = RIM_TYPEHID;
+-        msg_data->rawinput.hid.device = input->hw.hid.device;
+-        msg_data->rawinput.hid.param = input->hw.wparam;
+-        msg_data->rawinput.hid.usage = input->hw.hid.usage;
+-        msg_data->rawinput.hid.count = input->hw.hid.count;
+-        msg_data->rawinput.hid.length = input->hw.hid.length;
++        msg_data->size     = sizeof(*msg_data) + report_size;
++        msg_data->rawinput = input->hw.rawinput;
+ 
+         enum_processes( queue_rawinput_message, &raw_msg );
+         return;
+diff --git a/server/trace.c b/server/trace.c
+index fdd192e1749..ccb251cbc4b 100644
+--- a/server/trace.c
++++ b/server/trace.c
+@@ -421,6 +421,29 @@ static void dump_irp_params( const char *prefix, const irp_params_t *data )
+     }
+ }
+ 
++static void dump_rawinput( const char *prefix, const union rawinput *rawinput )
++{
++    switch (rawinput->type)
++    {
++    case RIM_TYPEMOUSE:
++        fprintf( stderr, "%s{type=MOUSE,x=%d,y=%d,data=%08x}", prefix, rawinput->mouse.x,
++                 rawinput->mouse.y, rawinput->mouse.data );
++        break;
++    case RIM_TYPEKEYBOARD:
++        fprintf( stderr, "%s{type=KEYBOARD,message=%04x,vkey=%04hx,scan=%04hx}", prefix,
++                 rawinput->kbd.message, rawinput->kbd.vkey, rawinput->kbd.scan );
++        break;
++    case RIM_TYPEHID:
++        fprintf( stderr, "%s{type=HID,device=%04x,param=%04x,usage=%04x:%04x,count=%u,length=%u}",
++                 prefix, rawinput->hid.device, rawinput->hid.param, HIWORD(rawinput->hid.usage),
++                 LOWORD(rawinput->hid.usage), rawinput->hid.count, rawinput->hid.length );
++        break;
++    default:
++        fprintf( stderr, "%s{type=%04x}", prefix, rawinput->type );
++        break;
++    }
++}
++
+ static void dump_hw_input( const char *prefix, const hw_input_t *input )
+ {
+     switch (input->type)
+@@ -440,19 +463,12 @@ static void dump_hw_input( const char *prefix, const hw_input_t *input )
+         break;
+     case INPUT_HARDWARE:
+         fprintf( stderr, "%s{type=HARDWARE,msg=%04x", prefix, input->hw.msg );
+-        dump_uint64( ",wparam=", &input->hw.wparam );
+         dump_uint64( ",lparam=", &input->hw.lparam );
+         switch (input->hw.msg)
+         {
+         case WM_INPUT:
+-            fprintf( stderr, "%s{type=HID,device=%04x,usage=%04x:%04x,count=%u,length=%u}",
+-                     prefix, input->hw.hid.device, HIWORD(input->hw.hid.usage), LOWORD(input->hw.hid.usage),
+-                     input->hw.hid.count, input->hw.hid.length );
+-            break;
+         case WM_INPUT_DEVICE_CHANGE:
+-            fprintf( stderr, "%s{type=HID,device=%04x,usage=%04x:%04x}",
+-                     prefix, input->hw.hid.device, HIWORD(input->hw.hid.usage), LOWORD(input->hw.hid.usage) );
+-            break;
++            dump_rawinput( ",rawinput=", &input->hw.rawinput );
+         }
+         fputc( '}', stderr );
+         break;
+-- 
+2.43.2
+

@@ -1,0 +1,37 @@
+From 632ec3780f8248578af1634791d344a898b5a9e0 Mon Sep 17 00:00:00 2001
+From: Connor McAdams <cmcadams@codeweavers.com>
+Date: Thu, 4 Nov 2021 11:00:56 -0400
+Subject: [PATCH 0881/1306] HACK: user32: Handle OBJID_QUERYCLASSNAMEIDX for
+ user32 edit control.
+
+Due to Wine's implementation of RealGetWindowClass being broken for
+subclassed controls, we'll need to respond to OBJID_QUERYCLASSNAMEIDX to
+know that we have an edit control.
+
+Signed-off-by: Connor McAdams <cmcadams@codeweavers.com>
+
+CW-Bug-Id: #18351
+---
+ dlls/user32/edit.c | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/dlls/user32/edit.c b/dlls/user32/edit.c
+index 39f429813d6..f7a427a5aa4 100644
+--- a/dlls/user32/edit.c
++++ b/dlls/user32/edit.c
+@@ -5105,6 +5105,12 @@ LRESULT EditWndProc_common( HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, B
+ 		}
+ 		break;
+ 
++        case WM_GETOBJECT:
++                if (lParam == (DWORD)OBJID_QUERYCLASSNAMEIDX)
++                    result = 0x10004;
++
++                break;
++
+ 	default:
+ 		result = DefWindowProcT(hwnd, msg, wParam, lParam, unicode);
+ 		break;
+-- 
+2.43.2
+

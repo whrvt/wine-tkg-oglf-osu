@@ -1,0 +1,172 @@
+From 29c51ea9cd42f7644248348624d0d8226d6e9902 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?R=C3=A9mi=20Bernon?= <rbernon@codeweavers.com>
+Date: Tue, 22 Nov 2022 08:45:36 +0100
+Subject: [PATCH 0326/1306] user32: Implement semi-stub touch input support.
+
+CW-Bug-Id: #18214
+---
+ dlls/user32/input.c          | 21 +++++++++------------
+ dlls/win32u/input.c          | 21 +++++++++++++++++++--
+ dlls/win32u/ntuser_private.h |  1 +
+ dlls/win32u/sysparams.c      |  6 ++++++
+ dlls/win32u/win32u_private.h |  2 ++
+ include/ntuser.h             |  2 ++
+ 6 files changed, 39 insertions(+), 14 deletions(-)
+
+diff --git a/dlls/user32/input.c b/dlls/user32/input.c
+index 9b2648332cd..b295c4c4dff 100644
+--- a/dlls/user32/input.c
++++ b/dlls/user32/input.c
+@@ -697,9 +697,8 @@ LRESULT WINAPI DefRawInputProc( RAWINPUT **data, INT data_count, UINT header_siz
+  */
+ BOOL WINAPI CloseTouchInputHandle( HTOUCHINPUT handle )
+ {
+-    FIXME( "handle %p stub!\n", handle );
+-    SetLastError( ERROR_CALL_NOT_IMPLEMENTED );
+-    return FALSE;
++    TRACE( "handle %p.\n", handle );
++    return TRUE;
+ }
+ 
+ /*****************************************************************************
+@@ -707,9 +706,9 @@ BOOL WINAPI CloseTouchInputHandle( HTOUCHINPUT handle )
+  */
+ BOOL WINAPI GetTouchInputInfo( HTOUCHINPUT handle, UINT count, TOUCHINPUT *ptr, int size )
+ {
+-    FIXME( "handle %p, count %u, ptr %p, size %u stub!\n", handle, count, ptr, size );
+-    SetLastError( ERROR_CALL_NOT_IMPLEMENTED );
+-    return FALSE;
++    TRACE( "handle %p, count %u, ptr %p, size %u.\n", handle, count, ptr, size );
++    *ptr = *(TOUCHINPUT *)handle;
++    return TRUE;
+ }
+ 
+ /*****************************************************************************
+@@ -717,9 +716,8 @@ BOOL WINAPI GetTouchInputInfo( HTOUCHINPUT handle, UINT count, TOUCHINPUT *ptr,
+  */
+ BOOL WINAPI RegisterTouchWindow( HWND hwnd, ULONG flags )
+ {
+-    FIXME( "hwnd %p, flags %#lx stub!\n", hwnd, flags );
+-    SetLastError( ERROR_CALL_NOT_IMPLEMENTED );
+-    return FALSE;
++    TRACE( "hwnd %p, flags %#lx.\n", hwnd, flags );
++    return NtUserCallTwoParam( (ULONG_PTR)hwnd, flags, NtUserCallTwoParam_RegisterTouchWindow );
+ }
+ 
+ /*****************************************************************************
+@@ -727,9 +725,8 @@ BOOL WINAPI RegisterTouchWindow( HWND hwnd, ULONG flags )
+  */
+ BOOL WINAPI UnregisterTouchWindow( HWND hwnd )
+ {
+-    FIXME( "hwnd %p stub!\n", hwnd );
+-    SetLastError( ERROR_CALL_NOT_IMPLEMENTED );
+-    return FALSE;
++    TRACE( "hwnd %p.\n", hwnd );
++    return NtUserCallOneParam( (ULONG_PTR)hwnd, NtUserCallOneParam_UnregisterTouchWindow );
+ }
+ 
+ /*****************************************************************************
+diff --git a/dlls/win32u/input.c b/dlls/win32u/input.c
+index 9f08e2de435..7984fe9f385 100644
+--- a/dlls/win32u/input.c
++++ b/dlls/win32u/input.c
+@@ -2566,8 +2566,25 @@ BOOL clip_fullscreen_window( HWND hwnd, BOOL reset )
+  */
+ BOOL WINAPI NtUserIsTouchWindow( HWND hwnd, ULONG *flags )
+ {
+-    FIXME( "hwnd %p, flags %p stub!\n", hwnd, flags );
+-    return FALSE;
++    DWORD win_flags = win_set_flags( hwnd, 0, 0 );
++    TRACE( "hwnd %p, flags %p.\n", hwnd, flags );
++    return (win_flags & WIN_IS_TOUCH) != 0;
++}
++
++
++BOOL register_touch_window( HWND hwnd, UINT flags )
++{
++    DWORD win_flags = win_set_flags( hwnd, WIN_IS_TOUCH, 0 );
++    TRACE( "hwnd %p, flags %#x.\n", hwnd, flags );
++    return (win_flags & WIN_IS_TOUCH) == 0;
++}
++
++
++BOOL unregister_touch_window( HWND hwnd )
++{
++    DWORD win_flags = win_set_flags( hwnd, 0, WIN_IS_TOUCH );
++    TRACE( "hwnd %p.\n", hwnd );
++    return (win_flags & WIN_IS_TOUCH) != 0;
+ }
+ 
+ /**********************************************************************
+diff --git a/dlls/win32u/ntuser_private.h b/dlls/win32u/ntuser_private.h
+index 2297af8bdd6..782172377c9 100644
+--- a/dlls/win32u/ntuser_private.h
++++ b/dlls/win32u/ntuser_private.h
+@@ -105,6 +105,7 @@ typedef struct tagWND
+ #define WIN_CHILDREN_MOVED        0x0040 /* children may have moved, ignore stored positions */
+ #define WIN_HAS_IME_WIN           0x0080 /* the window has been registered with imm32 */
+ #define WIN_IS_ACTIVATING         0x0100 /* the window is being activated */
++#define WIN_IS_TOUCH              0x0200 /* the window has been registered for touch input */
+ 
+ #define WND_OTHER_PROCESS ((WND *)1)  /* returned by get_win_ptr on unknown window handles */
+ #define WND_DESKTOP       ((WND *)2)  /* returned by get_win_ptr on the desktop window */
+diff --git a/dlls/win32u/sysparams.c b/dlls/win32u/sysparams.c
+index cea7e2cbc73..2d14438dec9 100644
+--- a/dlls/win32u/sysparams.c
++++ b/dlls/win32u/sysparams.c
+@@ -6338,6 +6338,9 @@ ULONG_PTR WINAPI NtUserCallOneParam( ULONG_PTR arg, ULONG code )
+     case NtUserCallOneParam_SetKeyboardAutoRepeat:
+         return set_keyboard_auto_repeat( arg );
+ 
++    case NtUserCallOneParam_UnregisterTouchWindow:
++        return unregister_touch_window( (HWND)arg );
++
+     /* temporary exports */
+     case NtUserGetDeskPattern:
+         return get_entry( &entry_DESKPATTERN, 256, (WCHAR *)arg );
+@@ -6370,6 +6373,9 @@ ULONG_PTR WINAPI NtUserCallTwoParam( ULONG_PTR arg1, ULONG_PTR arg2, ULONG code
+     case NtUserCallTwoParam_MonitorFromRect:
+         return HandleToUlong( monitor_from_rect( (const RECT *)arg1, arg2, get_thread_dpi() ));
+ 
++    case NtUserCallTwoParam_RegisterTouchWindow:
++        return register_touch_window( (HWND)arg1, arg2 );
++
+     case NtUserCallTwoParam_SetCaretPos:
+         return set_caret_pos( arg1, arg2 );
+ 
+diff --git a/dlls/win32u/win32u_private.h b/dlls/win32u/win32u_private.h
+index 6b518e6023d..805a34a635a 100644
+--- a/dlls/win32u/win32u_private.h
++++ b/dlls/win32u/win32u_private.h
+@@ -108,6 +108,8 @@ extern void update_mouse_tracking_info( HWND hwnd );
+ extern BOOL get_clip_cursor( RECT *rect );
+ extern BOOL process_wine_clipcursor( HWND hwnd, UINT flags, BOOL reset );
+ extern BOOL clip_fullscreen_window( HWND hwnd, BOOL reset );
++extern BOOL register_touch_window( HWND hwnd, UINT flags );
++extern BOOL unregister_touch_window( HWND hwnd );
+ 
+ /* menu.c */
+ extern HMENU create_menu( BOOL is_popup );
+diff --git a/include/ntuser.h b/include/ntuser.h
+index b6775a40495..405a74c0361 100644
+--- a/include/ntuser.h
++++ b/include/ntuser.h
+@@ -893,6 +893,7 @@ enum
+     NtUserCallOneParam_SetCaretBlinkTime,
+     NtUserCallOneParam_SetProcessDefaultLayout,
+     NtUserCallOneParam_SetKeyboardAutoRepeat,
++    NtUserCallOneParam_UnregisterTouchWindow,
+     /* temporary exports */
+     NtUserGetDeskPattern,
+ };
+@@ -1019,6 +1020,7 @@ enum
+     NtUserCallTwoParam_GetMonitorInfo,
+     NtUserCallTwoParam_GetSystemMetricsForDpi,
+     NtUserCallTwoParam_MonitorFromRect,
++    NtUserCallTwoParam_RegisterTouchWindow,
+     NtUserCallTwoParam_SetCaretPos,
+     NtUserCallTwoParam_SetIconParam,
+     NtUserCallTwoParam_UnhookWindowsHook,
+-- 
+2.43.2
+

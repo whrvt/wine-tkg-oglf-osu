@@ -22,9 +22,9 @@ diff --git a/dlls/ntdll/ntdll_misc.h b/dlls/ntdll/ntdll_misc.h
 index 11111111111..11111111111 100644
 --- a/dlls/ntdll/ntdll_misc.h
 +++ b/dlls/ntdll/ntdll_misc.h
-@@ -90,6 +90,14 @@ extern const WCHAR system_dir[] DECLSPEC_HIDDEN;
+@@ -90,6 +90,14 @@ extern const WCHAR system_dir[];
  
- extern void (FASTCALL *pBaseThreadInitThunk)(DWORD,LPTHREAD_START_ROUTINE,void *) DECLSPEC_HIDDEN;
+ extern void (FASTCALL *pBaseThreadInitThunk)(DWORD,LPTHREAD_START_ROUTINE,void *);
  
 +struct hypervisor_shared_data
 +{
@@ -33,10 +33,10 @@ index 11111111111..11111111111 100644
 +    UINT64 QpcBias;
 +};
 +
-+extern struct hypervisor_shared_data *hypervisor_shared_data DECLSPEC_HIDDEN;
- extern struct _KUSER_SHARED_DATA *user_shared_data DECLSPEC_HIDDEN;
++extern struct hypervisor_shared_data *hypervisor_shared_data;
+ extern struct _KUSER_SHARED_DATA *user_shared_data;
  
- extern int CDECL NTDLL__vsnprintf( char *str, SIZE_T len, const char *format, va_list args ) DECLSPEC_HIDDEN;
+ extern int CDECL NTDLL__vsnprintf( char *str, SIZE_T len, const char *format, va_list args );
 diff --git a/dlls/ntdll/thread.c b/dlls/ntdll/thread.c
 index 11111111111..11111111111 100644
 --- a/dlls/ntdll/thread.c
@@ -117,22 +117,22 @@ diff --git a/dlls/ntdll/unix/unix_private.h b/dlls/ntdll/unix/unix_private.h
 index 11111111111..11111111111 100644
 --- a/dlls/ntdll/unix/unix_private.h
 +++ b/dlls/ntdll/unix/unix_private.h
-@@ -168,6 +168,7 @@ extern BOOL process_exiting DECLSPEC_HIDDEN;
- extern HANDLE keyed_event DECLSPEC_HIDDEN;
- extern timeout_t server_start_time DECLSPEC_HIDDEN;
- extern sigset_t server_block_set DECLSPEC_HIDDEN;
-+extern void *hypervisor_shared_data DECLSPEC_HIDDEN;
- extern struct _KUSER_SHARED_DATA *user_shared_data DECLSPEC_HIDDEN;
- extern SYSTEM_CPU_INFORMATION cpu_info DECLSPEC_HIDDEN;
+@@ -168,6 +168,7 @@ extern BOOL process_exiting;
+ extern HANDLE keyed_event;
+ extern timeout_t server_start_time;
+ extern sigset_t server_block_set;
++extern void *hypervisor_shared_data;
+ extern struct _KUSER_SHARED_DATA *user_shared_data;
+ extern SYSTEM_CPU_INFORMATION cpu_info;
  #ifdef __i386__
-@@ -248,6 +249,7 @@ extern NTSTATUS virtual_clear_tls_index( ULONG index ) DECLSPEC_HIDDEN;
+@@ -248,6 +249,7 @@ extern NTSTATUS virtual_clear_tls_index( ULONG index );
  extern NTSTATUS virtual_alloc_thread_stack( INITIAL_TEB *stack, ULONG_PTR limit_low, ULONG_PTR limit_high,
-                                             SIZE_T reserve_size, SIZE_T commit_size, BOOL guard_page ) DECLSPEC_HIDDEN;
- extern void virtual_map_user_shared_data(void) DECLSPEC_HIDDEN;
-+extern void virtual_map_hypervisor_shared_data(void) DECLSPEC_HIDDEN;
- extern NTSTATUS virtual_handle_fault( void *addr, DWORD err, void *stack ) DECLSPEC_HIDDEN;
- extern unsigned int virtual_locked_server_call( void *req_ptr ) DECLSPEC_HIDDEN;
- extern ssize_t virtual_locked_read( int fd, void *addr, size_t size ) DECLSPEC_HIDDEN;
+                                             SIZE_T reserve_size, SIZE_T commit_size, BOOL guard_page );
+ extern void virtual_map_user_shared_data(void);
++extern void virtual_map_hypervisor_shared_data(void);
+ extern NTSTATUS virtual_handle_fault( void *addr, DWORD err, void *stack );
+ extern unsigned int virtual_locked_server_call( void *req_ptr );
+ extern ssize_t virtual_locked_read( int fd, void *addr, size_t size );
 diff --git a/dlls/ntdll/unix/virtual.c b/dlls/ntdll/unix/virtual.c
 index 11111111111..11111111111 100644
 --- a/dlls/ntdll/unix/virtual.c

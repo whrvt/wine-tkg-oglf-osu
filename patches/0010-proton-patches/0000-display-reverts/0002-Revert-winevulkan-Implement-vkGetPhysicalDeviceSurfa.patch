@@ -1,0 +1,183 @@
+From a652a3a74779ab5966f25bf9d741fac3ed6ed4df Mon Sep 17 00:00:00 2001
+From: whrvt <william@horvath.blog>
+Date: Tue, 27 Feb 2024 14:45:47 -0800
+Subject: [PATCH 02/11] Revert "winevulkan: Implement
+ vkGetPhysicalDeviceSurfaceFormats2KHR fallback."
+
+This reverts commit 64ced5a345c0401afa0b9f564bfbe13255c96264.
+---
+ dlls/winevulkan/make_vulkan     |  1 -
+ dlls/winevulkan/vulkan.c        | 50 -------------------------------
+ dlls/winevulkan/vulkan_thunks.c | 52 +++++++++++++++++++++++++++++++--
+ dlls/winevulkan/vulkan_thunks.h |  1 -
+ 4 files changed, 49 insertions(+), 55 deletions(-)
+
+diff --git a/dlls/winevulkan/make_vulkan b/dlls/winevulkan/make_vulkan
+index be5a6c8e531..4417b3a04bf 100755
+--- a/dlls/winevulkan/make_vulkan
++++ b/dlls/winevulkan/make_vulkan
+@@ -261,7 +261,6 @@ MANUAL_UNIX_THUNKS = {
+     "vkGetPhysicalDevicePresentRectanglesKHR",
+     "vkGetPhysicalDeviceSurfaceCapabilities2KHR",
+     "vkGetPhysicalDeviceSurfaceCapabilitiesKHR",
+-    "vkGetPhysicalDeviceSurfaceFormats2KHR",
+     "vkMapMemory",
+     "vkMapMemory2KHR",
+     "vkUnmapMemory",
+diff --git a/dlls/winevulkan/vulkan.c b/dlls/winevulkan/vulkan.c
+index fe7072ade22..32cd900d83d 100644
+--- a/dlls/winevulkan/vulkan.c
++++ b/dlls/winevulkan/vulkan.c
+@@ -1939,56 +1939,6 @@ VkResult wine_vkGetPhysicalDevicePresentRectanglesKHR(VkPhysicalDevice device_ha
+                                                                      surface->host_surface, rect_count, rects);
+ }
+ 
+-VkResult wine_vkGetPhysicalDeviceSurfaceFormatsKHR(VkPhysicalDevice device_handle, VkSurfaceKHR surface_handle,
+-                                                   uint32_t *format_count, VkSurfaceFormatKHR *formats)
+-{
+-    struct wine_phys_dev *physical_device = wine_phys_dev_from_handle(device_handle);
+-    struct wine_surface *surface = wine_surface_from_handle(surface_handle);
+-    struct wine_instance *instance = physical_device->instance;
+-
+-    return instance->funcs.p_vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device->host_physical_device, surface->driver_surface,
+-                                                                  format_count, formats);
+-}
+-
+-VkResult wine_vkGetPhysicalDeviceSurfaceFormats2KHR(VkPhysicalDevice device_handle, const VkPhysicalDeviceSurfaceInfo2KHR *surface_info,
+-                                                    uint32_t *format_count, VkSurfaceFormat2KHR *formats)
+-{
+-    struct wine_phys_dev *physical_device = wine_phys_dev_from_handle(device_handle);
+-    struct wine_surface *surface = wine_surface_from_handle(surface_info->surface);
+-    VkPhysicalDeviceSurfaceInfo2KHR surface_info_host = *surface_info;
+-    struct wine_instance *instance = physical_device->instance;
+-    VkResult res;
+-
+-    if (!physical_device->instance->funcs.p_vkGetPhysicalDeviceSurfaceFormats2KHR)
+-    {
+-        VkSurfaceFormatKHR *surface_formats;
+-        UINT i;
+-
+-        /* Until the loader version exporting this function is common, emulate it using the older non-2 version. */
+-        if (surface_info->pNext) FIXME("Emulating vkGetPhysicalDeviceSurfaceFormats2KHR, ignoring pNext.\n");
+-
+-        if (!formats) return wine_vkGetPhysicalDeviceSurfaceFormatsKHR(device_handle, surface_info->surface, format_count, NULL);
+-
+-        surface_formats = calloc(*format_count, sizeof(*surface_formats));
+-        if (!surface_formats) return VK_ERROR_OUT_OF_HOST_MEMORY;
+-
+-        res = wine_vkGetPhysicalDeviceSurfaceFormatsKHR(device_handle, surface_info->surface, format_count, surface_formats);
+-        if (res == VK_SUCCESS || res == VK_INCOMPLETE)
+-        {
+-            for (i = 0; i < *format_count; i++)
+-                formats[i].surfaceFormat = surface_formats[i];
+-        }
+-
+-        free(surface_formats);
+-        return res;
+-    }
+-
+-    surface_info_host.surface = surface->driver_surface;
+-
+-    return instance->funcs.p_vkGetPhysicalDeviceSurfaceFormats2KHR(physical_device->host_physical_device,
+-                                                                   &surface_info_host, format_count, formats);
+-}
+-
+ VkResult wine_vkCreateDebugUtilsMessengerEXT(VkInstance handle,
+                                              const VkDebugUtilsMessengerCreateInfoEXT *create_info,
+                                              const VkAllocationCallbacks *allocator,
+diff --git a/dlls/winevulkan/vulkan_thunks.c b/dlls/winevulkan/vulkan_thunks.c
+index 886186332d6..3667fc51d90 100644
+--- a/dlls/winevulkan/vulkan_thunks.c
++++ b/dlls/winevulkan/vulkan_thunks.c
+@@ -28124,6 +28124,50 @@ static inline void convert_VkSurfaceCapabilities2KHR_host_to_win32(const VkSurfa
+     }
+ }
+ 
++#ifdef _WIN64
++static inline void convert_VkPhysicalDeviceSurfaceInfo2KHR_win64_to_driver(const VkPhysicalDeviceSurfaceInfo2KHR *in, VkPhysicalDeviceSurfaceInfo2KHR *out)
++{
++    if (!in) return;
++
++    out->sType = in->sType;
++    out->pNext = in->pNext;
++    out->surface = in->surface ? wine_surface_from_handle(in->surface)->driver_surface : 0;
++}
++#endif /* _WIN64 */
++
++static inline void convert_VkPhysicalDeviceSurfaceInfo2KHR_win32_to_driver(struct conversion_context *ctx, const VkPhysicalDeviceSurfaceInfo2KHR32 *in, VkPhysicalDeviceSurfaceInfo2KHR *out)
++{
++    const VkBaseInStructure32 *in_header;
++    VkBaseOutStructure *out_header = (void *)out;
++
++    if (!in) return;
++
++    out->sType = in->sType;
++    out->pNext = NULL;
++    out->surface = in->surface ? wine_surface_from_handle(in->surface)->driver_surface : 0;
++
++    for (in_header = UlongToPtr(in->pNext); in_header; in_header = UlongToPtr(in_header->pNext))
++    {
++        switch (in_header->sType)
++        {
++        case VK_STRUCTURE_TYPE_SURFACE_PRESENT_MODE_EXT:
++        {
++            VkSurfacePresentModeEXT *out_ext = conversion_context_alloc(ctx, sizeof(*out_ext));
++            const VkSurfacePresentModeEXT32 *in_ext = (const VkSurfacePresentModeEXT32 *)in_header;
++            out_ext->sType = VK_STRUCTURE_TYPE_SURFACE_PRESENT_MODE_EXT;
++            out_ext->pNext = NULL;
++            out_ext->presentMode = in_ext->presentMode;
++            out_header->pNext = (void *)out_ext;
++            out_header = (void *)out_ext;
++            break;
++        }
++        default:
++            FIXME("Unhandled sType %u.\n", in_header->sType);
++            break;
++        }
++    }
++}
++
+ static inline void convert_VkSurfaceFormat2KHR_win32_to_host(struct conversion_context *ctx, const VkSurfaceFormat2KHR32 *in, VkSurfaceFormat2KHR *out)
+ {
+     const VkBaseInStructure32 *in_header;
+@@ -43471,10 +43515,12 @@ static NTSTATUS thunk32_vkGetPhysicalDeviceSurfaceCapabilitiesKHR(void *args)
+ static NTSTATUS thunk64_vkGetPhysicalDeviceSurfaceFormats2KHR(void *args)
+ {
+     struct vkGetPhysicalDeviceSurfaceFormats2KHR_params *params = args;
++    VkPhysicalDeviceSurfaceInfo2KHR pSurfaceInfo_host;
+ 
+     TRACE("%p, %p, %p, %p\n", params->physicalDevice, params->pSurfaceInfo, params->pSurfaceFormatCount, params->pSurfaceFormats);
+ 
+-    params->result = wine_vkGetPhysicalDeviceSurfaceFormats2KHR(params->physicalDevice, params->pSurfaceInfo, params->pSurfaceFormatCount, params->pSurfaceFormats);
++    convert_VkPhysicalDeviceSurfaceInfo2KHR_win64_to_driver(params->pSurfaceInfo, &pSurfaceInfo_host);
++    params->result = wine_phys_dev_from_handle(params->physicalDevice)->instance->funcs.p_vkGetPhysicalDeviceSurfaceFormats2KHR(wine_phys_dev_from_handle(params->physicalDevice)->host_physical_device, &pSurfaceInfo_host, params->pSurfaceFormatCount, params->pSurfaceFormats);
+     return STATUS_SUCCESS;
+ }
+ #endif /* _WIN64 */
+@@ -43497,9 +43543,9 @@ static NTSTATUS thunk32_vkGetPhysicalDeviceSurfaceFormats2KHR(void *args)
+     TRACE("%#x, %#x, %#x, %#x\n", params->physicalDevice, params->pSurfaceInfo, params->pSurfaceFormatCount, params->pSurfaceFormats);
+ 
+     init_conversion_context(ctx);
+-    convert_VkPhysicalDeviceSurfaceInfo2KHR_win32_to_unwrapped_host(ctx, (const VkPhysicalDeviceSurfaceInfo2KHR32 *)UlongToPtr(params->pSurfaceInfo), &pSurfaceInfo_host);
++    convert_VkPhysicalDeviceSurfaceInfo2KHR_win32_to_driver(ctx, (const VkPhysicalDeviceSurfaceInfo2KHR32 *)UlongToPtr(params->pSurfaceInfo), &pSurfaceInfo_host);
+     pSurfaceFormats_host = convert_VkSurfaceFormat2KHR_array_win32_to_host(ctx, (VkSurfaceFormat2KHR32 *)UlongToPtr(params->pSurfaceFormats), *(uint32_t *)UlongToPtr(params->pSurfaceFormatCount));
+-    params->result = wine_vkGetPhysicalDeviceSurfaceFormats2KHR((VkPhysicalDevice)UlongToPtr(params->physicalDevice), &pSurfaceInfo_host, (uint32_t *)UlongToPtr(params->pSurfaceFormatCount), pSurfaceFormats_host);
++    params->result = wine_phys_dev_from_handle((VkPhysicalDevice)UlongToPtr(params->physicalDevice))->instance->funcs.p_vkGetPhysicalDeviceSurfaceFormats2KHR(wine_phys_dev_from_handle((VkPhysicalDevice)UlongToPtr(params->physicalDevice))->host_physical_device, &pSurfaceInfo_host, (uint32_t *)UlongToPtr(params->pSurfaceFormatCount), pSurfaceFormats_host);
+     convert_VkSurfaceFormat2KHR_array_host_to_win32(pSurfaceFormats_host, (VkSurfaceFormat2KHR32 *)UlongToPtr(params->pSurfaceFormats), *(uint32_t *)UlongToPtr(params->pSurfaceFormatCount));
+     free_conversion_context(ctx);
+     return STATUS_SUCCESS;
+diff --git a/dlls/winevulkan/vulkan_thunks.h b/dlls/winevulkan/vulkan_thunks.h
+index 2321bb91c09..28a8d8a0090 100644
+--- a/dlls/winevulkan/vulkan_thunks.h
++++ b/dlls/winevulkan/vulkan_thunks.h
+@@ -61,7 +61,6 @@ VkResult wine_vkGetPhysicalDeviceImageFormatProperties2KHR(VkPhysicalDevice phys
+ VkResult wine_vkGetPhysicalDevicePresentRectanglesKHR(VkPhysicalDevice physicalDevice, VkSurfaceKHR surface, uint32_t *pRectCount, VkRect2D *pRects);
+ VkResult wine_vkGetPhysicalDeviceSurfaceCapabilities2KHR(VkPhysicalDevice physicalDevice, const VkPhysicalDeviceSurfaceInfo2KHR *pSurfaceInfo, VkSurfaceCapabilities2KHR *pSurfaceCapabilities);
+ VkResult wine_vkGetPhysicalDeviceSurfaceCapabilitiesKHR(VkPhysicalDevice physicalDevice, VkSurfaceKHR surface, VkSurfaceCapabilitiesKHR *pSurfaceCapabilities);
+-VkResult wine_vkGetPhysicalDeviceSurfaceFormats2KHR(VkPhysicalDevice physicalDevice, const VkPhysicalDeviceSurfaceInfo2KHR *pSurfaceInfo, uint32_t *pSurfaceFormatCount, VkSurfaceFormat2KHR *pSurfaceFormats);
+ VkResult wine_vkMapMemory(VkDevice device, VkDeviceMemory memory, VkDeviceSize offset, VkDeviceSize size, VkMemoryMapFlags flags, void **ppData);
+ VkResult wine_vkMapMemory2KHR(VkDevice device, const VkMemoryMapInfoKHR *pMemoryMapInfo, void **ppData);
+ void wine_vkUnmapMemory(VkDevice device, VkDeviceMemory memory);
+-- 
+2.43.2
+

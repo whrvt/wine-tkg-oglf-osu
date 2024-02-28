@@ -1,0 +1,130 @@
+From a795dc6afa5edb63f5162658dc65105be0334b09 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?R=C3=A9mi=20Bernon?= <rbernon@codeweavers.com>
+Date: Tue, 28 Nov 2023 11:36:03 +0100
+Subject: [PATCH 0186/1306] winex11: Get rid of ref held from the HWND to its
+ Vk surface.
+
+---
+ dlls/winex11.drv/vulkan.c | 32 ++++++++------------------------
+ dlls/winex11.drv/window.c |  2 +-
+ dlls/winex11.drv/x11drv.h |  2 +-
+ 3 files changed, 10 insertions(+), 26 deletions(-)
+
+diff --git a/dlls/winex11.drv/vulkan.c b/dlls/winex11.drv/vulkan.c
+index 28897d3ab69..c84a2d32a04 100644
+--- a/dlls/winex11.drv/vulkan.c
++++ b/dlls/winex11.drv/vulkan.c
+@@ -49,8 +49,6 @@ WINE_DECLARE_DEBUG_CHANNEL(fps);
+ 
+ static pthread_mutex_t vulkan_mutex;
+ 
+-static XContext vulkan_hwnd_context;
+-
+ #define VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR 1000004000
+ 
+ static struct list surface_list = LIST_INIT( surface_list );
+@@ -140,7 +138,6 @@ static void wine_vk_init(void)
+ #undef LOAD_FUNCPTR
+ #undef LOAD_OPTIONAL_FUNCPTR
+ 
+-    vulkan_hwnd_context = XUniqueContext();
+     return;
+ 
+ fail:
+@@ -193,12 +193,6 @@ static VkResult wine_vk_instance_convert_create_info(const VkInstanceCreateInfo
+     return VK_SUCCESS;
+ }
+ 
+-static struct wine_vk_surface *wine_vk_surface_grab(struct wine_vk_surface *surface)
+-{
+-    InterlockedIncrement(&surface->ref);
+-    return surface;
+-}
+-
+ static void wine_vk_surface_release(struct wine_vk_surface *surface)
+ {
+     if (InterlockedDecrement(&surface->ref))
+@@ -224,18 +214,18 @@ static void wine_vk_surface_release( struct wine_vk_surface *surface )
+     free(surface);
+ }
+ 
+-void wine_vk_surface_destroy(HWND hwnd)
++void destroy_vk_surface( HWND hwnd )
+ {
+-    struct wine_vk_surface *surface;
+-    pthread_mutex_lock(&vulkan_mutex);
+-    if (!XFindContext(gdi_display, (XID)hwnd, vulkan_hwnd_context, (char **)&surface))
++    struct wine_vk_surface *surface, *next;
++
++    pthread_mutex_lock( &vulkan_mutex );
++    LIST_FOR_EACH_ENTRY_SAFE( surface, next, &surface_list, struct wine_vk_surface, entry )
+     {
++        if (surface->hwnd != hwnd) continue;
+         surface->hwnd_thread_id = 0;
+         surface->hwnd = NULL;
+-        wine_vk_surface_release(surface);
+     }
+-    XDeleteContext(gdi_display, (XID)hwnd, vulkan_hwnd_context);
+-    pthread_mutex_unlock(&vulkan_mutex);
++    pthread_mutex_unlock( &vulkan_mutex );
+ }
+ 
+ void vulkan_thread_detach(void)
+@@ -252,7 +242,6 @@ void vulkan_thread_detach(void)
+         TRACE("Detaching surface %p, hwnd %p.\n", surface, surface->hwnd);
+         XReparentWindow(gdi_display, surface->window, get_dummy_parent(), 0, 0);
+         XSync(gdi_display, False);
+-        wine_vk_surface_destroy(surface->hwnd);
+     }
+     pthread_mutex_unlock(&vulkan_mutex);
+ }
+@@ -377,11 +366,6 @@ static VkResult X11DRV_vkCreateWin32SurfaceKHR(VkInstance instance,
+     }
+ 
+     pthread_mutex_lock(&vulkan_mutex);
+-    if (x11_surface->hwnd)
+-    {
+-        wine_vk_surface_destroy( x11_surface->hwnd );
+-        XSaveContext(gdi_display, (XID)create_info->hwnd, vulkan_hwnd_context, (char *)wine_vk_surface_grab(x11_surface));
+-    }
+     list_add_tail(&surface_list, &x11_surface->entry);
+     pthread_mutex_unlock(&vulkan_mutex);
+ 
+@@ -758,7 +742,7 @@ const struct vulkan_funcs *get_vulkan_driver(UINT version)
+     return NULL;
+ }
+ 
+-void wine_vk_surface_destroy(HWND hwnd)
++void destroy_vk_surface( HWND hwnd )
+ {
+ }
+ 
+diff --git a/dlls/winex11.drv/window.c b/dlls/winex11.drv/window.c
+index f7b560fd0ca..87be315f097 100644
+--- a/dlls/winex11.drv/window.c
++++ b/dlls/winex11.drv/window.c
+@@ -2033,7 +2033,7 @@ void X11DRV_DestroyWindow( HWND hwnd )
+     release_win_data( data );
+     free( data );
+     destroy_gl_drawable( hwnd );
+-    wine_vk_surface_destroy( hwnd );
++    destroy_vk_surface( hwnd );
+ }
+ 
+ 
+diff --git a/dlls/winex11.drv/x11drv.h b/dlls/winex11.drv/x11drv.h
+index a3878088daa..d6f35c82dd1 100644
+--- a/dlls/winex11.drv/x11drv.h
++++ b/dlls/winex11.drv/x11drv.h
+@@ -656,7 +656,7 @@ extern Window get_dummy_parent(void);
+ extern void sync_gl_drawable( HWND hwnd, BOOL known_child );
+ extern void set_gl_drawable_parent( HWND hwnd, HWND parent );
+ extern void destroy_gl_drawable( HWND hwnd );
+-extern void wine_vk_surface_destroy( HWND hwnd );
++extern void destroy_vk_surface( HWND hwnd );
+ extern void vulkan_thread_detach(void);
+ 
+ extern void wait_for_withdrawn_state( HWND hwnd, BOOL set );
+-- 
+2.43.2
+

@@ -1,0 +1,143 @@
+From 536dbff65275aa901aefc51de701a53fe77278a1 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?R=C3=A9mi=20Bernon?= <rbernon@codeweavers.com>
+Date: Thu, 22 Apr 2021 23:38:16 +0200
+Subject: [PATCH 0188/1306] winex11: Re-attach vulkan surfaces when images are
+ acquired.
+
+---
+ dlls/winex11.drv/vulkan.c | 41 ++++++++++++++++++++++++++++++++++++++-
+ dlls/winex11.drv/window.c |  2 +-
+ dlls/winex11.drv/x11drv.h |  1 +
+ 3 files changed, 42 insertions(+), 2 deletions(-)
+
+diff --git a/dlls/winex11.drv/vulkan.c b/dlls/winex11.drv/vulkan.c
+index 72a89010407..6b3a197372b 100644
+--- a/dlls/winex11.drv/vulkan.c
++++ b/dlls/winex11.drv/vulkan.c
+@@ -49,6 +49,8 @@ WINE_DECLARE_DEBUG_CHANNEL(fps);
+ 
+ static pthread_mutex_t vulkan_mutex;
+ 
++static XContext swapchain_context;
++
+ #define VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR 1000004000
+ 
+ static struct list surface_list = LIST_INIT( surface_list );
+@@ -138,6 +140,7 @@ static void wine_vk_init(void)
+ #undef LOAD_FUNCPTR
+ #undef LOAD_OPTIONAL_FUNCPTR
+ 
++    swapchain_context = XUniqueContext();
+     return;
+ 
+ fail:
+@@ -197,6 +200,13 @@ static VkResult wine_vk_instance_convert_create_info(const VkInstanceCreateInfo
+     return VK_SUCCESS;
+ }
+ 
++static struct wine_vk_surface *wine_vk_surface_grab( struct wine_vk_surface *surface )
++{
++    int refcount = InterlockedIncrement( &surface->ref );
++    TRACE( "surface %p, refcount %d.\n", surface, refcount );
++    return surface;
++}
++
+ static void wine_vk_surface_release(struct wine_vk_surface *surface)
+ {
+     if (InterlockedDecrement(&surface->ref))
+@@ -304,6 +314,8 @@ static VkResult X11DRV_vkCreateSwapchainKHR(VkDevice device,
+ {
+     struct wine_vk_surface *x11_surface = surface_from_handle(create_info->surface);
+     VkSwapchainCreateInfoKHR create_info_host;
++    VkResult result;
++
+     TRACE("%p %p %p %p\n", device, create_info, allocator, swapchain);
+ 
+     if (allocator)
+@@ -315,7 +327,14 @@ static VkResult X11DRV_vkCreateSwapchainKHR(VkDevice device,
+     create_info_host = *create_info;
+     create_info_host.surface = x11_surface->host_surface;
+ 
+-    return pvkCreateSwapchainKHR(device, &create_info_host, NULL /* allocator */, swapchain);
++    if ((result = pvkCreateSwapchainKHR( device, &create_info_host, NULL /* allocator */,
++                                         swapchain )) == VK_SUCCESS)
++    {
++        XSaveContext( gdi_display, (XID)(*swapchain), swapchain_context,
++                      (char *)wine_vk_surface_grab( x11_surface ) );
++    }
++
++    return result;
+ }
+ 
+ static VkResult X11DRV_vkCreateWin32SurfaceKHR(VkInstance instance,
+@@ -422,12 +441,17 @@ static void X11DRV_vkDestroySurfaceKHR(VkInstance instance, VkSurfaceKHR surface
+ static void X11DRV_vkDestroySwapchainKHR(VkDevice device, VkSwapchainKHR swapchain,
+          const VkAllocationCallbacks *allocator)
+ {
++    struct wine_vk_surface *surface;
++
+     TRACE("%p, 0x%s %p\n", device, wine_dbgstr_longlong(swapchain), allocator);
+ 
+     if (allocator)
+         FIXME("Support for allocation callbacks not implemented yet\n");
+ 
+     pvkDestroySwapchainKHR(device, swapchain, NULL /* allocator */);
++
++    if (!XFindContext( gdi_display, (XID)swapchain, swapchain_context, (char **)&surface ))
++        wine_vk_surface_release( surface );
+ }
+ 
+ static VkResult X11DRV_vkEnumerateInstanceExtensionProperties(const char *layer_name,
+@@ -654,9 +678,24 @@ static VkResult X11DRV_vkGetSwapchainImagesKHR(VkDevice device,
+ static VkResult X11DRV_vkQueuePresentKHR(VkQueue queue, const VkPresentInfoKHR *present_info)
+ {
+     VkResult res;
++    UINT i;
+ 
+     TRACE("%p, %p\n", queue, present_info);
+ 
++    for (i = 0; i < present_info->swapchainCount; i++)
++    {
++        VkSwapchainKHR swapchain = present_info->pSwapchains[i];
++        struct wine_vk_surface *surface;
++        struct x11drv_win_data *data;
++
++        if (!XFindContext( gdi_display, (XID)swapchain, swapchain_context, (char **)&surface ) &&
++            (data = get_win_data( surface->hwnd )))
++        {
++            attach_client_window( data, surface->window );
++            release_win_data( data );
++        }
++    }
++
+     res = pvkQueuePresentKHR(queue, present_info);
+ 
+     if (TRACE_ON(fps))
+diff --git a/dlls/winex11.drv/window.c b/dlls/winex11.drv/window.c
+index f09da296b6a..3ce597f95e8 100644
+--- a/dlls/winex11.drv/window.c
++++ b/dlls/winex11.drv/window.c
+@@ -1710,7 +1710,7 @@ void detach_client_window( struct x11drv_win_data *data, Window client_window, B
+ /**********************************************************************
+  *             attach_client_window
+  */
+-static void attach_client_window( struct x11drv_win_data *data, Window client_window )
++void attach_client_window( struct x11drv_win_data *data, Window client_window )
+ {
+     if (data->client_window == client_window || !client_window) return;
+     detach_client_window( data, data->client_window, TRUE );
+diff --git a/dlls/winex11.drv/x11drv.h b/dlls/winex11.drv/x11drv.h
+index 95b30a7e2af..8da58645438 100644
+--- a/dlls/winex11.drv/x11drv.h
++++ b/dlls/winex11.drv/x11drv.h
+@@ -669,6 +669,7 @@ extern Window create_dummy_client_window(void);
+ extern Window create_client_window( HWND hwnd, const XVisualInfo *visual, Colormap colormap );
+ extern void destroy_client_window( HWND hwnd, Window client_window );
+ extern void detach_client_window( struct x11drv_win_data *data, Window client_window, BOOL reparent );
++extern void attach_client_window( struct x11drv_win_data *data, Window client_window );
+ extern void set_window_visual( struct x11drv_win_data *data, const XVisualInfo *vis, BOOL use_alpha );
+ extern void change_systray_owner( Display *display, Window systray_window );
+ extern HWND create_foreign_window( Display *display, Window window );
+-- 
+2.43.2
+

@@ -1,0 +1,120 @@
+From f3bab6c5b793deeed5738081d3e43bfdd679e95f Mon Sep 17 00:00:00 2001
+From: Zhiyi Zhang <zzhang@codeweavers.com>
+Date: Fri, 23 Feb 2024 16:47:55 +0800
+Subject: [PATCH 1/2] rtworkq: Avoid closing a thread pool object while its
+ callbacks are running.
+
+Consider a thread A running scheduled_item_cancelable_callback() and a thread B running queue_cancel_item(),
+which is the scenario from canceling a work item right after it gets submitted by RtwqScheduleWorkItem().
+When the CloseThreadpoolTimer() call in queue_cancel_item() in thread B runs before the queue_release_pending_item()
+in scheduled_item_cancelable_callback() in thread A, scheduled_item_cancelable_callback() ends up
+calling work_item_Release() and CloseThreadpoolTimer() is called again for the same timer object. So
+the thread pool timer object end up getting released while the scheduled_item_cancelable_callback()
+is running, triggering the '!object->num_running_callbacks' assertion in tp_object_release(). This
+is actually a double free but the assertion happens before the second free could happen. The same
+thing could happen for thread pool wait objects as well.
+
+Fix mf and mfmediaengine tests sometimes trigger the '!object->num_running_callbacks' assertion.
+
+Wine-Bug: https://bugs.winehq.org/show_bug.cgi?id=55724
+---
+ dlls/rtworkq/queue.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/dlls/rtworkq/queue.c b/dlls/rtworkq/queue.c
+index 15b8da47639..40471ff5234 100644
+--- a/dlls/rtworkq/queue.c
++++ b/dlls/rtworkq/queue.c
+@@ -892,9 +892,13 @@ static HRESULT queue_cancel_item(struct queue *queue, RTWQWORKITEM_KEY key)
+                 IRtwqAsyncResult_SetStatus(item->result, RTWQ_E_OPERATION_CANCELLED);
+                 invoke_async_callback(item->result);
+                 CloseThreadpoolWait(item->u.wait_object);
++                item->u.wait_object = NULL;
+             }
+             else if ((key & SCHEDULED_ITEM_KEY_MASK) == SCHEDULED_ITEM_KEY_MASK)
++            {
+                 CloseThreadpoolTimer(item->u.timer_object);
++                item->u.timer_object = NULL;
++            }
+             else
+                 WARN("Unknown item key mask %#I64x.\n", key);
+             queue_release_pending_item(item);
+-- 
+GitLab
+
+
+From 7865026f53b295eee910b51f93e56e8e1d0bb9a7 Mon Sep 17 00:00:00 2001
+From: Zhiyi Zhang <zzhang@codeweavers.com>
+Date: Fri, 23 Feb 2024 17:12:04 +0800
+Subject: [PATCH 2/2] rtworkq: Avoid possible scenarios that an async callback
+ could be called twice.
+
+Consider a thread A running waiting_item_cancelable_callback() and a thread B running queue_cancel_item(),
+which is the scenario from canceling a work item right after it gets submitted by RtwqPutWaitingWorkItem().
+When the invoke_async_callback() call in queue_cancel_item() for item key with WAIT_ITEM_KEY_MASK in
+thread B runs before the queue_release_pending_item() in waiting_item_cancelable_callback() in thread
+A, the async callback is called the first time in queue_cancel_item() with RTWQ_E_OPERATION_CANCELLED,
+then a second time in waiting_item_cancelable_callback(). We should check in queue_release_pending_item()
+whether an item is already removed by queue_cancel_item() before calling async callbacks.
+
+A different scenario could happen for scheduled_item_cancelable_callback() with the function ends
+up calling its async callback even after it has been canceled by queue_cancel_item().
+---
+ dlls/rtworkq/queue.c | 18 +++++++++++-------
+ 1 file changed, 11 insertions(+), 7 deletions(-)
+
+diff --git a/dlls/rtworkq/queue.c b/dlls/rtworkq/queue.c
+index 40471ff5234..eebb096ad31 100644
+--- a/dlls/rtworkq/queue.c
++++ b/dlls/rtworkq/queue.c
+@@ -730,16 +730,22 @@ static HRESULT invoke_async_callback(IRtwqAsyncResult *result)
+     return hr;
+ }
+ 
+-static void queue_release_pending_item(struct work_item *item)
++/* Return TRUE when the item is actually released by this function. The item could have been already
++ * removed from pending items when it got canceled. */
++static BOOL queue_release_pending_item(struct work_item *item)
+ {
++    BOOL ret = FALSE;
++
+     EnterCriticalSection(&item->queue->cs);
+     if (item->key)
+     {
+         list_remove(&item->entry);
++        ret = TRUE;
+         item->key = 0;
+         IUnknown_Release(&item->IUnknown_iface);
+     }
+     LeaveCriticalSection(&item->queue->cs);
++    return ret;
+ }
+ 
+ static void CALLBACK waiting_item_callback(TP_CALLBACK_INSTANCE *instance, void *context, TP_WAIT *wait,
+@@ -761,9 +767,8 @@ static void CALLBACK waiting_item_cancelable_callback(TP_CALLBACK_INSTANCE *inst
+ 
+     TRACE("result object %p.\n", item->result);
+ 
+-    queue_release_pending_item(item);
+-
+-    invoke_async_callback(item->result);
++    if (queue_release_pending_item(item))
++        invoke_async_callback(item->result);
+ 
+     IUnknown_Release(&item->IUnknown_iface);
+ }
+@@ -785,9 +790,8 @@ static void CALLBACK scheduled_item_cancelable_callback(TP_CALLBACK_INSTANCE *in
+ 
+     TRACE("result object %p.\n", item->result);
+ 
+-    queue_release_pending_item(item);
+-
+-    invoke_async_callback(item->result);
++    if (queue_release_pending_item(item))
++        invoke_async_callback(item->result);
+ 
+     IUnknown_Release(&item->IUnknown_iface);
+ }
+-- 
+GitLab
+

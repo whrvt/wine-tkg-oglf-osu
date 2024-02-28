@@ -1,0 +1,106 @@
+From 3ec11589c5b347899b32d0e11af295503e0d3633 Mon Sep 17 00:00:00 2001
+From: whrvt <william@horvath.blog>
+Date: Mon, 26 Feb 2024 20:02:42 -0800
+Subject: [PATCH 2/4] Revert "winex11: Always listen to XInput2 device changes
+ events."
+
+This reverts commit 51e99345de4d2e2a7c5db939e9add141bd8c30f6.
+---
+ dlls/winex11.drv/mouse.c | 41 +++++++++++++++++-----------------------
+ 1 file changed, 17 insertions(+), 24 deletions(-)
+
+diff --git a/dlls/winex11.drv/mouse.c b/dlls/winex11.drv/mouse.c
+index 143837adede..3036f3db9e3 100644
+--- a/dlls/winex11.drv/mouse.c
++++ b/dlls/winex11.drv/mouse.c
+@@ -260,10 +260,14 @@ static void enable_xinput2(void)
+ {
+     struct x11drv_thread_data *data = x11drv_thread_data();
+     XIEventMask mask;
++    XIDeviceInfo *pointer_info;
+     unsigned char mask_bits[XIMaskLen(XI_LASTEVENT)];
++    int count;
+ 
+     if (!xinput2_available) return;
+ 
++    if (!pXIGetClientPointer( data->display, None, &data->xinput2_pointer )) return;
++
+     mask.mask     = mask_bits;
+     mask.mask_len = sizeof(mask_bits);
+     mask.deviceid = XIAllMasterDevices;
+@@ -271,7 +275,12 @@ static void enable_xinput2(void)
+     XISetMask( mask_bits, XI_DeviceChanged );
+     XISetMask( mask_bits, XI_RawMotion );
+     XISetMask( mask_bits, XI_ButtonPress );
++
+     pXISelectEvents( data->display, DefaultRootWindow( data->display ), &mask, 1 );
++
++    pointer_info = pXIQueryDevice( data->display, data->xinput2_pointer, &count );
++    update_relative_valuators( pointer_info->classes, pointer_info->num_classes );
++    pXIFreeDeviceInfo( pointer_info );
+ }
+ 
+ #endif
+@@ -283,17 +292,20 @@ static void disable_xinput2(void)
+ {
+ #ifdef HAVE_X11_EXTENSIONS_XINPUT2_H
+     struct x11drv_thread_data *data = x11drv_thread_data();
+-    unsigned char mask_bits[XIMaskLen(XI_LASTEVENT)];
+     XIEventMask mask;
+ 
+     if (!xinput2_available) return;
+ 
+-    mask.mask     = mask_bits;
+-    mask.mask_len = sizeof(mask_bits);
++    mask.mask = NULL;
++    mask.mask_len = 0;
+     mask.deviceid = XIAllMasterDevices;
+-    memset( mask_bits, 0, sizeof(mask_bits) );
+-    XISetMask( mask_bits, XI_DeviceChanged );
++
+     pXISelectEvents( data->display, DefaultRootWindow( data->display ), &mask, 1 );
++    data->x_valuator.number = -1;
++    data->y_valuator.number = -1;
++    data->x_valuator.value = 0;
++    data->y_valuator.value = 0;
++    data->xinput2_pointer = 0;
+ #endif
+ }
+ 
+@@ -304,10 +316,7 @@ static void disable_xinput2(void)
+ void x11drv_xinput2_init( struct x11drv_thread_data *data )
+ {
+ #ifdef HAVE_X11_EXTENSIONS_XINPUT2_H
+-    unsigned char mask_bits[XIMaskLen(XI_LASTEVENT)];
+     int major = 2, minor = 2;
+-    XIEventMask mask;
+-    int count;
+ 
+     if (!xinput2_available || pXIQueryVersion( data->display, &major, &minor ))
+     {
+@@ -316,22 +325,6 @@ void x11drv_xinput2_init( struct x11drv_thread_data *data )
+         return;
+     }
+ 
+-    mask.mask     = mask_bits;
+-    mask.mask_len = sizeof(mask_bits);
+-    mask.deviceid = XIAllMasterDevices;
+-    memset( mask_bits, 0, sizeof(mask_bits) );
+-    XISetMask( mask_bits, XI_DeviceChanged );
+-    pXISelectEvents( data->display, DefaultRootWindow( data->display ), &mask, 1 );
+-
+-    if (!pXIGetClientPointer( data->display, None, &data->xinput2_pointer ))
+-        WARN( "Failed to get xinput2 master pointer device\n" );
+-    else
+-    {
+-        XIDeviceInfo *pointer_info = pXIQueryDevice( data->display, data->xinput2_pointer, &count );
+-        update_relative_valuators( pointer_info->classes, pointer_info->num_classes );
+-        pXIFreeDeviceInfo( pointer_info );
+-    }
+-
+     TRACE( "XInput2 %d.%d available\n", major, minor );
+ #endif
+ }
+-- 
+2.43.2
+

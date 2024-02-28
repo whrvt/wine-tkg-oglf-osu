@@ -1,0 +1,229 @@
+From 19deceed0a682ed55a5fa7ea0def1295b43bd616 Mon Sep 17 00:00:00 2001
+From: whrvt <william@horvath.blog>
+Date: Wed, 28 Feb 2024 00:50:10 -0800
+Subject: [PATCH 4/5] Revert "winebus: Allow specific devices to prefer hidraw
+ backend."
+
+This reverts commit 814d2c176d23c581353ba5679977415d2218d0c5.
+---
+ dlls/winebus.sys/bus_iohid.c |  2 +-
+ dlls/winebus.sys/bus_udev.c  | 33 +++++++++++++++++++-
+ dlls/winebus.sys/main.c      | 59 +++++-------------------------------
+ dlls/winebus.sys/unixlib.h   |  5 ++-
+ 4 files changed, 42 insertions(+), 57 deletions(-)
+
+diff --git a/dlls/winebus.sys/bus_iohid.c b/dlls/winebus.sys/bus_iohid.c
+index fdcd820e99e..e5c29d5247e 100644
+--- a/dlls/winebus.sys/bus_iohid.c
++++ b/dlls/winebus.sys/bus_iohid.c
+@@ -271,7 +271,7 @@ static void handle_DeviceMatchingCallback(void *context, IOReturn result, void *
+ {
+     struct device_desc desc =
+     {
+-        .input = -1, .is_hidraw = TRUE,
++        .input = -1,
+         .serialnumber = {'0','0','0','0',0},
+     };
+     struct iohid_device *impl;
+diff --git a/dlls/winebus.sys/bus_udev.c b/dlls/winebus.sys/bus_udev.c
+index f8c6ccb9060..cc8fe648506 100644
+--- a/dlls/winebus.sys/bus_udev.c
++++ b/dlls/winebus.sys/bus_udev.c
+@@ -530,6 +530,29 @@ static const struct raw_device_vtbl hidraw_device_vtbl =
+ 
+ #ifdef HAS_PROPER_INPUT_HEADER
+ 
++static const char *get_device_syspath(struct udev_device *dev)
++{
++    struct udev_device *parent;
++
++    if ((parent = udev_device_get_parent_with_subsystem_devtype(dev, "hid", NULL)))
++        return udev_device_get_syspath(parent);
++
++    if ((parent = udev_device_get_parent_with_subsystem_devtype(dev, "usb", "usb_device")))
++        return udev_device_get_syspath(parent);
++
++    return "";
++}
++
++static struct base_device *find_device_from_syspath(const char *path)
++{
++    struct base_device *impl;
++
++    LIST_FOR_EACH_ENTRY(impl, &device_list, struct base_device, unix_device.entry)
++        if (!strcmp(get_device_syspath(impl->udev_device), path)) return impl;
++
++    return NULL;
++}
++
+ #define test_bit(arr,bit) (((BYTE*)(arr))[(bit)>>3]&(1<<((bit)&7)))
+ 
+ static const USAGE_AND_PAGE *what_am_I(struct udev_device *dev, int fd)
+@@ -1309,6 +1332,15 @@ static void udev_add_device(struct udev_device *dev, int fd)
+ 
+     TRACE("udev %s syspath %s\n", debugstr_a(devnode), udev_device_get_syspath(dev));
+ 
++#ifdef HAS_PROPER_INPUT_HEADER
++    if ((impl = find_device_from_syspath(get_device_syspath(dev))))
++    {
++        TRACE("duplicate device found, not adding the new one\n");
++        close(fd);
++        return;
++    }
++#endif
++
+     get_device_subsystem_info(dev, "hid", &desc, &bus);
+     get_device_subsystem_info(dev, "input", &desc, &bus);
+     get_device_subsystem_info(dev, "usb", &desc, &bus);
+@@ -1322,7 +1354,6 @@ static void udev_add_device(struct udev_device *dev, int fd)
+ #endif
+ 
+         if (!desc.manufacturer[0]) memcpy(desc.manufacturer, hidraw, sizeof(hidraw));
+-        desc.is_hidraw = TRUE;
+ 
+ #ifdef HAVE_LINUX_HIDRAW_H
+         if (!desc.product[0] && ioctl(fd, HIDIOCGRAWNAME(sizeof(product) - 1), product) >= 0)
+diff --git a/dlls/winebus.sys/main.c b/dlls/winebus.sys/main.c
+index b19b1f1cb96..be635632e80 100644
+--- a/dlls/winebus.sys/main.c
++++ b/dlls/winebus.sys/main.c
+@@ -401,36 +401,6 @@ static DWORD check_bus_option(const WCHAR *option, DWORD default_value)
+     return default_value;
+ }
+ 
+-static BOOL is_hidraw_enabled(WORD vid, WORD pid)
+-{
+-    char buffer[FIELD_OFFSET(KEY_VALUE_PARTIAL_INFORMATION, Data[1024])];
+-    KEY_VALUE_PARTIAL_INFORMATION *info = (KEY_VALUE_PARTIAL_INFORMATION *)buffer;
+-    WCHAR vidpid[MAX_PATH], *tmp;
+-    BOOL prefer_hidraw = FALSE;
+-    UNICODE_STRING str;
+-    DWORD size;
+-
+-    if (check_bus_option(L"DisableHidraw", FALSE)) return FALSE;
+-
+-    RtlInitUnicodeString(&str, L"EnableHidraw");
+-    if (!NtQueryValueKey(driver_key, &str, KeyValuePartialInformation, info,
+-                         sizeof(buffer) - sizeof(WCHAR), &size))
+-    {
+-        UINT len = swprintf(vidpid, ARRAY_SIZE(vidpid), L"%04X:%04X", vid, pid);
+-        size -= FIELD_OFFSET(KEY_VALUE_PARTIAL_INFORMATION, Data[0]);
+-        tmp = (WCHAR *)info->Data;
+-
+-        while (size >= len * sizeof(WCHAR))
+-        {
+-            if (!wcsnicmp(tmp, vidpid, len)) prefer_hidraw = TRUE;
+-            size -= (len + 1) * sizeof(WCHAR);
+-            tmp += len + 1;
+-        }
+-    }
+-
+-    return prefer_hidraw;
+-}
+-
+ static BOOL deliver_next_report(struct device_extension *ext, IRP *irp)
+ {
+     struct hid_report *report;
+@@ -610,14 +580,6 @@ static DWORD CALLBACK bus_main_thread(void *args)
+             IoInvalidateDeviceRelations(bus_pdo, BusRelations);
+             break;
+         case BUS_EVENT_TYPE_DEVICE_CREATED:
+-        {
+-            const struct device_desc *desc = &event->device_created.desc;
+-            if (!desc->is_hidraw != !is_hidraw_enabled(desc->vid, desc->pid))
+-            {
+-                WARN("ignoring %shidraw device %04x:%04x\n", desc->is_hidraw ? "" : "non-", desc->vid, desc->pid);
+-                break;
+-            }
+-
+             device = bus_create_hid_device(&event->device_created.desc, event->device);
+             if (device) IoInvalidateDeviceRelations(bus_pdo, BusRelations);
+             else
+@@ -627,7 +589,6 @@ static DWORD CALLBACK bus_main_thread(void *args)
+                 winebus_call(device_remove, &params);
+             }
+             break;
+-        }
+         case BUS_EVENT_TYPE_INPUT_REPORT:
+             RtlEnterCriticalSection(&device_list_cs);
+             device = bus_find_unix_device(event->device);
+@@ -778,7 +739,7 @@ static NTSTATUS sdl_driver_init(void)
+     return status;
+ }
+ 
+-static NTSTATUS udev_driver_init(BOOL enable_sdl)
++static NTSTATUS udev_driver_init(void)
+ {
+     struct udev_bus_options bus_options;
+     struct bus_main_params bus =
+@@ -791,7 +752,7 @@ static NTSTATUS udev_driver_init(BOOL enable_sdl)
+ 
+     bus_options.disable_hidraw = check_bus_option(L"DisableHidraw", 0);
+     if (bus_options.disable_hidraw) TRACE("UDEV hidraw devices disabled in registry\n");
+-    bus_options.disable_input = check_bus_option(L"DisableInput", 0) || enable_sdl;
++    bus_options.disable_input = check_bus_option(L"DisableInput", 0);
+     if (bus_options.disable_input) TRACE("UDEV input devices disabled in registry\n");
+     bus_options.disable_udevd = check_bus_option(L"DisableUdevd", 0);
+     if (bus_options.disable_udevd) TRACE("UDEV udevd use disabled in registry\n");
+@@ -810,19 +771,12 @@ static NTSTATUS iohid_driver_init(void)
+         .wait_code = iohid_wait,
+     };
+ 
+-    if (check_bus_option(L"DisableHidraw", FALSE))
+-    {
+-        TRACE("IOHID hidraw devices disabled in registry\n");
+-        return STATUS_SUCCESS;
+-    }
+-
+     return bus_main_thread_start(&bus);
+ }
+ 
+ static NTSTATUS fdo_pnp_dispatch(DEVICE_OBJECT *device, IRP *irp)
+ {
+     IO_STACK_LOCATION *irpsp = IoGetCurrentIrpStackLocation(irp);
+-    BOOL enable_sdl;
+     NTSTATUS ret;
+ 
+     switch (irpsp->MinorFunction)
+@@ -834,10 +788,11 @@ static NTSTATUS fdo_pnp_dispatch(DEVICE_OBJECT *device, IRP *irp)
+         mouse_device_create();
+         keyboard_device_create();
+ 
+-        if ((enable_sdl = check_bus_option(L"Enable SDL", 1)))
+-            enable_sdl = !sdl_driver_init();
+-        udev_driver_init(enable_sdl);
+-        iohid_driver_init();
++        if (!check_bus_option(L"Enable SDL", 1) || sdl_driver_init())
++        {
++            udev_driver_init();
++            iohid_driver_init();
++        }
+ 
+         irp->IoStatus.Status = STATUS_SUCCESS;
+         break;
+diff --git a/dlls/winebus.sys/unixlib.h b/dlls/winebus.sys/unixlib.h
+index 80852696dd1..3182e1dc687 100644
+--- a/dlls/winebus.sys/unixlib.h
++++ b/dlls/winebus.sys/unixlib.h
+@@ -38,7 +38,6 @@ struct device_desc
+     UINT input;
+     UINT uid;
+     BOOL is_gamepad;
+-    BOOL is_hidraw;
+ 
+     WCHAR manufacturer[MAX_PATH];
+     WCHAR product[MAX_PATH];
+@@ -148,8 +147,8 @@ enum unix_funcs
+ static inline const char *debugstr_device_desc(struct device_desc *desc)
+ {
+     if (!desc) return "(null)";
+-    return wine_dbg_sprintf("{vid %04x, pid %04x, version %04x, input %d, uid %08x, is_gamepad %u, is_hidraw %u}",
+-                            desc->vid, desc->pid, desc->version, desc->input, desc->uid, desc->is_gamepad, desc->is_hidraw);
++    return wine_dbg_sprintf("{vid %04x, pid %04x, version %04x, input %d, uid %08x, is_gamepad %u}",
++                            desc->vid, desc->pid, desc->version, desc->input, desc->uid, desc->is_gamepad);
+ }
+ 
+ static inline BOOL is_xbox_gamepad(WORD vid, WORD pid)
+-- 
+2.43.2
+

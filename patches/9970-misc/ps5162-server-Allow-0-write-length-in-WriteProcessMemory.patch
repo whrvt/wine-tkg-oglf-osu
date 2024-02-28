@@ -1,0 +1,45 @@
+From 9897719562fc47d8d3476928d3db0dd5eb6dfb28 Mon Sep 17 00:00:00 2001
+From: Eric Pouech <epouech@codeweavers.com>
+Date: Mon, 26 Feb 2024 12:12:50 +0100
+Subject: [PATCH] server: Allow 0-write length in WriteProcessMemory().
+
+Adapt to Win >= 10 behavior.
+
+Wine-Bug: https://bugs.winehq.org/show_bug.cgi?id=56357
+Signed-off-by: Eric Pouech <epouech@codeweavers.com>
+---
+ dlls/kernel32/tests/virtual.c | 8 ++++++++
+ server/process.c              | 1 -
+ 2 files changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/dlls/kernel32/tests/virtual.c b/dlls/kernel32/tests/virtual.c
+index c54fb16ba155..a023104ad888 100644
+--- a/dlls/kernel32/tests/virtual.c
++++ b/dlls/kernel32/tests/virtual.c
+@@ -114,6 +114,14 @@ static void test_VirtualAllocEx(void)
+     ok(b && (bytes_read == alloc_size), "%Iu bytes read\n", bytes_read);
+     ok(!memcmp(src, dst, alloc_size), "Data from remote process differs\n");
+ 
++    /* test 0 length */
++    bytes_written = 0xdeadbeef;
++    b = WriteProcessMemory(hProcess, addr1, src, 0, &bytes_written);
++    ok((b && !bytes_written) || broken(!b && GetLastError() == ERROR_INVALID_PARAMETER), "write failed: %lu\n", GetLastError());
++    bytes_read = 0xdeadbeef;
++    b = ReadProcessMemory(hProcess, addr1, src, 0, &bytes_read);
++    ok(b && !bytes_read, "read failed: %lu\n", GetLastError());
++
+     /* test invalid source buffers */
+ 
+     b = VirtualProtect( src + 0x2000, 0x2000, PAGE_NOACCESS, &old_prot );
+diff --git a/server/process.c b/server/process.c
+index b6c21d157522..349aa87be3d4 100644
+--- a/server/process.c
++++ b/server/process.c
+@@ -1659,7 +1659,6 @@ DECL_HANDLER(write_process_memory)
+     {
+         data_size_t len = get_req_data_size();
+         if (len) write_process_memory( process, req->addr, len, get_req_data() );
+-        else set_error( STATUS_INVALID_PARAMETER );
+         release_object( process );
+     }
+ }

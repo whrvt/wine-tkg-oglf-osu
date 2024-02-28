@@ -1,0 +1,92 @@
+From 1e9cd185a088dfbd7e604f4ae7a7a39d319ff1f5 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?R=C3=A9mi=20Bernon?= <rbernon@codeweavers.com>
+Date: Wed, 6 Dec 2023 15:53:19 +0100
+Subject: [PATCH 0303/1306] winex11.drv: Send relative RawMotion events
+ unprocessed.
+
+This makes relative raw input independent from cursor speed, as it is
+the case on Windows. Absolute raw input is already translated to
+virtual desktop space, and cursor speed is meaningless in this case.
+
+This does not support mixed relative/absolute X/Y axis.
+---
+ dlls/winex11.drv/mouse.c | 24 ++++++++++++------------
+ 1 file changed, 12 insertions(+), 12 deletions(-)
+
+diff --git a/dlls/winex11.drv/mouse.c b/dlls/winex11.drv/mouse.c
+index 5c0f8449197..02a1b5ae8c0 100644
+--- a/dlls/winex11.drv/mouse.c
++++ b/dlls/winex11.drv/mouse.c
+@@ -1735,12 +1735,12 @@ static BOOL X11DRV_XIDeviceChangedEvent( XIDeviceChangedEvent *event )
+     return TRUE;
+ }
+ 
+-static BOOL map_raw_event_coords( XIRawEvent *event, INPUT *input )
++static BOOL map_raw_event_coords( XIRawEvent *event, INPUT *input, RAWINPUT *rawinput )
+ {
+     struct x11drv_thread_data *thread_data = x11drv_thread_data();
+     XIValuatorClassInfo *x = &thread_data->x_valuator, *y = &thread_data->y_valuator;
+-    double x_value = 0, y_value = 0, x_scale, y_scale;
+-    const double *values = event->valuators.values;
++    const double *values = event->valuators.values, *raw_values = event->raw_values;
++    double x_raw = 0, y_raw = 0, x_value = 0, y_value = 0, x_scale, y_scale;
+     RECT virtual_rect;
+     int i;
+ 
+@@ -1768,16 +1768,19 @@ static BOOL map_raw_event_coords( XIRawEvent *event, INPUT *input )
+         if (!XIMaskIsSet( event->valuators.mask, i )) continue;
+         if (i == x->number)
+         {
++            x_raw = *raw_values;
+             x_value = *values;
+             if (x->mode == XIModeRelative) x->value += x_value * x_scale;
+             else x->value = (x_value - x->min) * x_scale;
+         }
+         if (i == y->number)
+         {
++            y_raw = *raw_values;
+             y_value = *values;
+             if (y->mode == XIModeRelative) y->value += y_value * y_scale;
+             else y->value = (y_value - y->min) * y_scale;
+         }
++        raw_values++;
+         values++;
+     }
+ 
+@@ -1779,11 +1779,10 @@ static BOOL map_raw_event_coords( XIRawEvent *event, INPUT *input, RAWINPUT *raw
+     x->value -= input->mi.dx;
+     y->value -= input->mi.dy;
+ 
+-    if (!(input->mi.dwFlags & MOUSEEVENTF_ABSOLUTE) && !input->mi.dx && !input->mi.dy)
+-    {
+-        TRACE( "accumulating motion\n" );
+-        return FALSE;
+-    }
++    if (x->mode != XIModeAbsolute) rawinput->data.mouse.lLastX = x_raw;
++    else rawinput->data.mouse.lLastX = input->mi.dx;
++    if (y->mode != XIModeAbsolute) rawinput->data.mouse.lLastY = y_raw;
++    else rawinput->data.mouse.lLastY = input->mi.dy;
+ 
+     return TRUE;
+ }
+@@ -1840,7 +1842,7 @@ static BOOL X11DRV_RawMotion( XGenericEventCookie *xev )
+     input.mi.dwExtraInfo = 0;
+     input.mi.dx          = 0;
+     input.mi.dy          = 0;
+-    if (!map_raw_event_coords( event, &input )) return FALSE;
++    if (!map_raw_event_coords( event, &input, &rawinput )) return FALSE;
+ 
+     if (!thread_data->xi2_rawinput_only)
+         __wine_send_input( 0, &input, NULL );
+@@ -1854,8 +1856,6 @@ static BOOL X11DRV_RawMotion( XGenericEventCookie *xev )
+         rawinput.data.mouse.ulRawButtons = 0;
+         rawinput.data.mouse.usButtonData = 0;
+         rawinput.data.mouse.usButtonFlags = 0;
+-        rawinput.data.mouse.lLastX = input.mi.dx;
+-        rawinput.data.mouse.lLastY = input.mi.dy;
+         rawinput.data.mouse.ulExtraInformation = 0;
+ 
+         input.type = INPUT_HARDWARE;
+-- 
+2.43.2
+

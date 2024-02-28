@@ -1,0 +1,129 @@
+From 6ea20f9a3b8a32fa2df5c535304bf87fc8f79750 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?R=C3=A9mi=20Bernon?= <rbernon@codeweavers.com>
+Date: Fri, 21 May 2021 14:57:46 +0200
+Subject: [PATCH 0327/1306] user32: Implement rudimentary EnableMouseInPointer
+ support.
+
+CW-Bug-Id: 18943
+
+Squashed with:
+
+user32: Send EnableMouseInPointer emulated messages earlier.
+
+Emulating these messages should probably be done elsewhere.
+
+CW-Bug-Id: #21331
+
+winex11.drv: Send legacy and rawinput mouse messages on touch input.
+
+CW-Bug-Id: #18214
+
+user32: Better emulate EnableMouseInPointer messages.
+
+This is still not very good, but it better matches what Windows does,
+and it fixes mouse input with Return to Monkey Island.
+
+CW-Bug-Id: #21331
+---
+ dlls/win32u/input.c          |  8 ++++---
+ dlls/win32u/message.c        | 45 ++++++++++++++++++++++++++++++++++++
+ dlls/win32u/win32u_private.h |  1 +
+ 3 files changed, 51 insertions(+), 3 deletions(-)
+
+diff --git a/dlls/win32u/input.c b/dlls/win32u/input.c
+index 7984fe9f385..19388f7d9b5 100644
+--- a/dlls/win32u/input.c
++++ b/dlls/win32u/input.c
+@@ -546,6 +546,8 @@ static WCHAR kbd_tables_vkey_to_wchar( const KBDTABLES *tables, UINT vkey, const
+ 
+ #undef NEXT_ENTRY
+ 
++BOOL enable_mouse_in_pointer = FALSE;
++
+ /*******************************************************************
+  *           NtUserGetForegroundWindow  (win32u.@)
+  */
+@@ -2485,9 +2487,9 @@ void toggle_caret( HWND hwnd )
+  */
+ BOOL WINAPI NtUserEnableMouseInPointer( BOOL enable )
+ {
+-    FIXME( "enable %u stub!\n", enable );
+-    RtlSetLastWin32Error( ERROR_CALL_NOT_IMPLEMENTED );
+-    return FALSE;
++    FIXME( "enable %u semi-stub!\n", enable );
++    enable_mouse_in_pointer = TRUE;
++    return TRUE;
+ }
+ 
+ /**********************************************************************
+diff --git a/dlls/win32u/message.c b/dlls/win32u/message.c
+index f749eb1b14d..a1c010f2024 100644
+--- a/dlls/win32u/message.c
++++ b/dlls/win32u/message.c
+@@ -2491,6 +2491,51 @@ static BOOL process_mouse_message( MSG *msg, UINT hw_id, ULONG_PTR extra_info, H
+     msg->pt = point_phys_to_win_dpi( msg->hwnd, msg->pt );
+     SetThreadDpiAwarenessContext( get_window_dpi_awareness_context( msg->hwnd ));
+ 
++    if ((extra_info & 0xffffff00) != 0xff515700 && enable_mouse_in_pointer)
++    {
++        WORD flags = POINTER_MESSAGE_FLAG_PRIMARY;
++        DWORD message = 0;
++
++        switch (msg->message)
++        {
++        case WM_MOUSEMOVE:
++            message = WM_POINTERUPDATE;
++            flags |= POINTER_MESSAGE_FLAG_INRANGE;
++            break;
++        case WM_LBUTTONDOWN:
++        case WM_RBUTTONDOWN:
++        case WM_MBUTTONDOWN:
++        case WM_XBUTTONDOWN:
++            message = WM_POINTERDOWN;
++            flags |= POINTER_MESSAGE_FLAG_INRANGE|POINTER_MESSAGE_FLAG_INCONTACT;
++            if (msg->message == WM_LBUTTONDOWN) flags |= POINTER_MESSAGE_FLAG_FIRSTBUTTON;
++            if (msg->message == WM_RBUTTONDOWN) flags |= POINTER_MESSAGE_FLAG_SECONDBUTTON;
++            if (msg->message == WM_MBUTTONDOWN) flags |= POINTER_MESSAGE_FLAG_THIRDBUTTON;
++            if (msg->message == WM_XBUTTONDOWN && LOWORD( msg->wParam ) == MK_LBUTTON) flags |= POINTER_MESSAGE_FLAG_FIRSTBUTTON;
++            if (msg->message == WM_XBUTTONDOWN && LOWORD( msg->wParam ) == MK_RBUTTON) flags |= POINTER_MESSAGE_FLAG_SECONDBUTTON;
++            if (msg->message == WM_XBUTTONDOWN && LOWORD( msg->wParam ) == MK_MBUTTON) flags |= POINTER_MESSAGE_FLAG_THIRDBUTTON;
++            if (msg->message == WM_XBUTTONDOWN && LOWORD( msg->wParam ) == MK_XBUTTON1) flags |= POINTER_MESSAGE_FLAG_FOURTHBUTTON;
++            if (msg->message == WM_XBUTTONDOWN && LOWORD( msg->wParam ) == MK_XBUTTON2) flags |= POINTER_MESSAGE_FLAG_FIFTHBUTTON;
++            break;
++        case WM_LBUTTONUP:
++        case WM_RBUTTONUP:
++        case WM_MBUTTONUP:
++        case WM_XBUTTONUP:
++            message = WM_POINTERUP;
++            break;
++        case WM_MOUSEWHEEL:
++            message = WM_POINTERWHEEL;
++            flags = HIWORD( msg->wParam );
++            break;
++        case WM_MOUSEHWHEEL:
++            message = WM_POINTERHWHEEL;
++            flags = HIWORD( msg->wParam );
++            break;
++        }
++
++        if (message) send_message( msg->hwnd, message, MAKELONG( 1, flags ), MAKELONG( msg->pt.x, msg->pt.y ) );
++    }
++
+     /* FIXME: is this really the right place for this hook? */
+     event.message = msg->message;
+     event.time    = msg->time;
+diff --git a/dlls/win32u/win32u_private.h b/dlls/win32u/win32u_private.h
+index 805a34a635a..cc2df00348f 100644
+--- a/dlls/win32u/win32u_private.h
++++ b/dlls/win32u/win32u_private.h
+@@ -89,6 +89,7 @@ extern BOOL register_imm_window( HWND hwnd );
+ extern void unregister_imm_window( HWND hwnd );
+ 
+ /* input.c */
++extern BOOL enable_mouse_in_pointer;
+ extern BOOL grab_pointer;
+ extern BOOL grab_fullscreen;
+ extern BOOL destroy_caret(void);
+-- 
+2.43.2
+

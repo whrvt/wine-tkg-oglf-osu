@@ -1,0 +1,51 @@
+From d4f67fff80e969fd6224b9e2ca4b258ef9c414df Mon Sep 17 00:00:00 2001
+From: whrvt <william@horvath.blog>
+Date: Sun, 21 Jan 2024 11:35:26 -0800
+Subject: [PATCH 2/3] Revert "kernel32/tests: Fix ProcessMachineTypeInfo
+ tests."
+
+This reverts commit 77b366251767a6bfa1f744257aa371bd6ed49254.
+---
+ dlls/kernel32/tests/process.c | 10 +---------
+ 1 file changed, 1 insertion(+), 9 deletions(-)
+
+diff --git a/dlls/kernel32/tests/process.c b/dlls/kernel32/tests/process.c
+index e0f1d210e58..5f5327245fc 100644
+--- a/dlls/kernel32/tests/process.c
++++ b/dlls/kernel32/tests/process.c
+@@ -5296,24 +5296,15 @@ static void test_GetProcessInformation(void)
+         return;
+     }
+ 
+-    SetLastError(0xdeadbeef);
+     ret = pGetProcessInformation(GetCurrentProcess(), ProcessMachineTypeInfo, NULL, 0);
+-    if (!ret && GetLastError() == ERROR_INVALID_PARAMETER)
+-    {
+-        win_skip("GetProcessInformation(ProcessMachineTypeInfo) is not supported.\n"); /* < win11 */
+-        return;
+-    }
+     ok(!ret, "Unexpected return value %d.\n", ret);
+     ok(GetLastError() == ERROR_BAD_LENGTH, "Unexpected error %ld.\n", GetLastError());
+-    SetLastError(0xdeadbeef);
+     ret = pGetProcessInformation(GetCurrentProcess(), ProcessMachineTypeInfo, &mi, 0);
+     ok(!ret, "Unexpected return value %d.\n", ret);
+     ok(GetLastError() == ERROR_BAD_LENGTH, "Unexpected error %ld.\n", GetLastError());
+-    SetLastError(0xdeadbeef);
+     ret = pGetProcessInformation(GetCurrentProcess(), ProcessMachineTypeInfo, &mi, sizeof(mi) - 1);
+     ok(!ret, "Unexpected return value %d.\n", ret);
+     ok(GetLastError() == ERROR_BAD_LENGTH, "Unexpected error %ld.\n", GetLastError());
+-    SetLastError(0xdeadbeef);
+     ret = pGetProcessInformation(GetCurrentProcess(), ProcessMachineTypeInfo, &mi, sizeof(mi) + 1);
+     ok(!ret, "Unexpected return value %d.\n", ret);
+     ok(GetLastError() == ERROR_BAD_LENGTH, "Unexpected error %ld.\n", GetLastError());
+@@ -5330,6 +5321,7 @@ static void test_GetProcessInformation(void)
+         if (machines[i].Process)
+         {
+             ok(mi.ProcessMachine == machines[i].Machine, "Unexpected process machine %#x.\n", mi.ProcessMachine);
++            ok(!mi.Res0, "Unexpected process machine %#x.\n", mi.ProcessMachine);
+             ok(!!(mi.MachineAttributes & UserEnabled) == machines[i].UserMode, "Unexpected attributes %#x.\n",
+                     mi.MachineAttributes);
+             ok(!!(mi.MachineAttributes & KernelEnabled) == machines[i].KernelMode, "Unexpected attributes %#x.\n",
+-- 
+2.43.0
+

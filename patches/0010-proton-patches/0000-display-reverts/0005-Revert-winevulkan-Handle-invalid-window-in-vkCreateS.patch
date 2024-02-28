@@ -1,0 +1,52 @@
+From 1b1b3a1a4e910ccda0149f3fe18911cded503a89 Mon Sep 17 00:00:00 2001
+From: whrvt <william@horvath.blog>
+Date: Tue, 27 Feb 2024 14:45:47 -0800
+Subject: [PATCH 05/11] Revert "winevulkan: Handle invalid window in
+ vkCreateSwapchainKHR."
+
+This reverts commit 9a1362695b9ca08885ce68fd867cd2e129473d52.
+---
+ dlls/vulkan-1/tests/vulkan.c | 2 ++
+ dlls/winevulkan/vulkan.c     | 6 ------
+ 2 files changed, 2 insertions(+), 6 deletions(-)
+
+diff --git a/dlls/vulkan-1/tests/vulkan.c b/dlls/vulkan-1/tests/vulkan.c
+index 371aef14255..e2ab609925b 100644
+--- a/dlls/vulkan-1/tests/vulkan.c
++++ b/dlls/vulkan-1/tests/vulkan.c
+@@ -858,6 +858,7 @@ static void test_win32_surface(VkInstance instance, VkPhysicalDevice physical_de
+ 
+     swapchain = 0xdeadbeef;
+     vr = create_swapchain(physical_device, surface, device, NULL, &swapchain);
++    todo_wine
+     ok(vr == VK_ERROR_INITIALIZATION_FAILED /* Nvidia */ || vr == VK_SUCCESS /* AMD */,
+             "Got unexpected vr %d.\n", vr);
+     if (vr == VK_SUCCESS)
+@@ -927,6 +928,7 @@ static void test_win32_surface(VkInstance instance, VkPhysicalDevice physical_de
+ 
+     swapchain = 0xdeadbeef;
+     vr = create_swapchain(physical_device, surface, device, hwnd, &swapchain);
++    todo_wine
+     ok(vr == VK_ERROR_INITIALIZATION_FAILED /* Nvidia */ || vr == VK_SUCCESS /* AMD */,
+             "Got unexpected vr %d.\n", vr);
+     if (vr == VK_SUCCESS)
+diff --git a/dlls/winevulkan/vulkan.c b/dlls/winevulkan/vulkan.c
+index 045f984731e..5d9d9e452b8 100644
+--- a/dlls/winevulkan/vulkan.c
++++ b/dlls/winevulkan/vulkan.c
+@@ -1570,12 +1570,6 @@ VkResult wine_vkCreateSwapchainKHR(VkDevice device_handle, const VkSwapchainCrea
+     VkSurfaceCapabilitiesKHR capabilities;
+     VkResult res;
+ 
+-    if (!NtUserIsWindow(surface->hwnd))
+-    {
+-        ERR("surface %p, hwnd %p is invalid!\n", surface, surface->hwnd);
+-        return VK_ERROR_INITIALIZATION_FAILED;
+-    }
+-
+     if (surface) create_info_host.surface = surface->driver_surface;
+     if (old_swapchain) create_info_host.oldSwapchain = old_swapchain->host_swapchain;
+ 
+-- 
+2.43.2
+

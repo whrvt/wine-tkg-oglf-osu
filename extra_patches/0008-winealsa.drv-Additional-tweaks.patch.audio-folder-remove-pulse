@@ -1,0 +1,84 @@
+diff --git a/dlls/winealsa.drv/alsa.c b/dlls/winealsa.drv/alsa.c
+index 027f9b0fa93..3fb21395276 100644
+--- a/dlls/winealsa.drv/alsa.c
++++ b/dlls/winealsa.drv/alsa.c
+@@ -36,13 +36,16 @@
+ #include "winternl.h"
+ #include "initguid.h"
+ #include "mmdeviceapi.h"
+-
++#include "ddk/wdm.h"
+ #include "wine/debug.h"
+ #include "wine/list.h"
+ #include "wine/unixlib.h"
+ 
+ #include "unixlib.h"
+ 
++static const struct _KUSER_SHARED_DATA *user_shared_data = (struct _KUSER_SHARED_DATA *)0x7ffe0000;
++static LARGE_INTEGER time_freq; 
++
+ WINE_DEFAULT_DEBUG_CHANNEL(alsa);
+ 
+ struct alsa_stream
+@@ -810,6 +813,11 @@ static NTSTATUS alsa_create_stream(void *args)
+ 
+     params->result = S_OK;
+ 
++    // set qpc frequency once
++    time_freq.QuadPart = user_shared_data->QpcFrequency;
++
++    WARN("QPC Frequency set to: %lld\n", time_freq.QuadPart);
++
+     const char* esrtenv = getenv("STAGING_AUDIO_EXTRA_PAD");
+     const char* penv    = getenv("STAGING_AUDIO_PRD_SIZE" );
+     const char* pnumenv = getenv("STAGING_AUDIO_PRD_NUM"  );
+@@ -1353,7 +1361,7 @@ static snd_pcm_sframes_t alsa_write_best_effort(struct alsa_stream *stream, BYTE
+         WARN("writei failed, recovering: %ld (%s)\n", written,
+                 snd_strerror(written));
+ 
+-        ret = snd_pcm_recover(stream->pcm_handle, written, 0);
++        ret = snd_pcm_recover(stream->pcm_handle, written, 1);
+         if(ret < 0){
+             WARN("Could not recover: %d (%s)\n", ret, snd_strerror(ret));
+             return ret;
+# @@ -1457,11 +1465,12 @@ static void alsa_write_data(struct alsa_stream *stream)
+#              WARN("snd_pcm_prepare failed: %d (%s)\n", err, snd_strerror(err));
+#      }
+ 
+# +    //if (!avail) goto noneavail;
+#      TRACE("avail: %ld\n", avail);
+# -
+# +    
+#      /* Add a lead-in when starting with too few frames to ensure
+#       * continuous rendering.  Additional benefit: Force ALSA to start. */
+# -    if(stream->data_in_alsa_frames == 0 && stream->held_frames < stream->alsa_period_frames)
+# +    if(!stream->started && stream->data_in_alsa_frames == 0 && stream->held_frames < stream->alsa_period_frames)
+#      {
+#          alsa_write_best_effort(stream, stream->silence_buf,
+#                                 stream->alsa_period_frames - stream->held_frames);
+# @@ -1499,6 +1508,7 @@ static void alsa_write_data(struct alsa_stream *stream)
+#          max_copy_frames -= written;
+#      }
+ 
+# +//noneavail:
+#      if(stream->event)
+#          NtSetEvent(stream->event, NULL);
+#  }
+@@ -1527,7 +1537,7 @@ static void alsa_read_data(struct alsa_stream *stream)
+ 
+         WARN("read failed, recovering: %ld (%s)\n", nread, snd_strerror(nread));
+ 
+-        ret = snd_pcm_recover(stream->pcm_handle, nread, 0);
++        ret = snd_pcm_recover(stream->pcm_handle, nread, 1);
+         if(ret < 0){
+             WARN("Recover failed: %d (%s)\n", ret, snd_strerror(ret));
+             return;
+@@ -1564,7 +1574,7 @@ exit:
+ 
+ static snd_pcm_uframes_t interp_elapsed_frames(struct alsa_stream *stream)
+ {
+-    LARGE_INTEGER time_freq, current_time, time_diff;
++    LARGE_INTEGER current_time, time_diff;
+ 
+     NtQueryPerformanceCounter(&current_time, &time_freq);
+     time_diff.QuadPart = current_time.QuadPart - stream->last_period_time.QuadPart;

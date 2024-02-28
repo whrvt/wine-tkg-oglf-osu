@@ -1,0 +1,103 @@
+From 9ef8baae6d60ff9f6f6c93bb886c829a4e45d811 Mon Sep 17 00:00:00 2001
+From: whrvt <william@horvath.blog>
+Date: Tue, 27 Feb 2024 14:13:22 -0800
+Subject: [PATCH 04/10] Revert "winex11: Remove now unnecessary create_info
+ HWND checks."
+
+This reverts commit 0d969b1764b08dccf8cc87e1b742ba983feac634.
+---
+ dlls/winex11.drv/vulkan.c | 21 +++++++++++++++------
+ dlls/winex11.drv/window.c | 18 ++++++++++++++++++
+ dlls/winex11.drv/x11drv.h |  1 +
+ 3 files changed, 34 insertions(+), 6 deletions(-)
+
+diff --git a/dlls/winex11.drv/vulkan.c b/dlls/winex11.drv/vulkan.c
+index ecd85314f32..d812d9e8972 100644
+--- a/dlls/winex11.drv/vulkan.c
++++ b/dlls/winex11.drv/vulkan.c
+@@ -304,7 +304,7 @@ static VkResult X11DRV_vkCreateWin32SurfaceKHR(VkInstance instance,
+         FIXME("Support for allocation callbacks not implemented yet\n");
+ 
+     /* TODO: support child window rendering. */
+-    if (NtUserGetAncestor( create_info->hwnd, GA_PARENT ) != NtUserGetDesktopWindow())
++    if (create_info->hwnd && NtUserGetAncestor(create_info->hwnd, GA_PARENT) != NtUserGetDesktopWindow())
+     {
+         FIXME("Application requires child window rendering, which is not implemented yet!\n");
+         return VK_ERROR_INCOMPATIBLE_DRIVER;
+@@ -316,8 +316,15 @@ static VkResult X11DRV_vkCreateWin32SurfaceKHR(VkInstance instance,
+ 
+     x11_surface->ref = 1;
+     x11_surface->hwnd = create_info->hwnd;
+-    x11_surface->window = create_client_window( create_info->hwnd, &default_visual );
+-    x11_surface->hwnd_thread_id = NtUserGetWindowThread( x11_surface->hwnd, NULL );
++    if (x11_surface->hwnd)
++    {
++        x11_surface->window = create_client_window(create_info->hwnd, &default_visual);
++        x11_surface->hwnd_thread_id = NtUserGetWindowThread(x11_surface->hwnd, NULL);
++    }
++    else
++    {
++        x11_surface->window = create_dummy_client_window();
++    }
+ 
+     if (!x11_surface->window)
+     {
+@@ -342,9 +349,11 @@ static VkResult X11DRV_vkCreateWin32SurfaceKHR(VkInstance instance,
+     }
+ 
+     pthread_mutex_lock(&vulkan_mutex);
+-    wine_vk_surface_destroy( x11_surface->hwnd );
+-    XSaveContext( gdi_display, (XID)create_info->hwnd, vulkan_hwnd_context,
+-                  (char *)wine_vk_surface_grab( x11_surface ) );
++    if (x11_surface->hwnd)
++    {
++        wine_vk_surface_destroy( x11_surface->hwnd );
++        XSaveContext(gdi_display, (XID)create_info->hwnd, vulkan_hwnd_context, (char *)wine_vk_surface_grab(x11_surface));
++    }
+     list_add_tail(&surface_list, &x11_surface->entry);
+     pthread_mutex_unlock(&vulkan_mutex);
+ 
+diff --git a/dlls/winex11.drv/window.c b/dlls/winex11.drv/window.c
+index 84878e95e37..8ab694450ef 100644
+--- a/dlls/winex11.drv/window.c
++++ b/dlls/winex11.drv/window.c
+@@ -1587,6 +1587,24 @@ Window get_dummy_parent(void)
+ }
+ 
+ 
++/**********************************************************************
++ *		create_dummy_client_window
++ */
++Window create_dummy_client_window(void)
++{
++    XSetWindowAttributes attr;
++
++    attr.colormap = default_colormap;
++    attr.bit_gravity = NorthWestGravity;
++    attr.win_gravity = NorthWestGravity;
++    attr.backing_store = NotUseful;
++    attr.border_pixel = 0;
++
++    return XCreateWindow( gdi_display, get_dummy_parent(), 0, 0, 1, 1, 0,
++                          default_visual.depth, InputOutput, default_visual.visual,
++                          CWBitGravity | CWWinGravity | CWBackingStore | CWColormap | CWBorderPixel, &attr );
++}
++
+ /**********************************************************************
+  *		create_client_window
+  */
+diff --git a/dlls/winex11.drv/x11drv.h b/dlls/winex11.drv/x11drv.h
+index 9c1b8012466..71a3582ff76 100644
+--- a/dlls/winex11.drv/x11drv.h
++++ b/dlls/winex11.drv/x11drv.h
+@@ -653,6 +653,7 @@ extern void update_user_time( Time time );
+ extern void read_net_wm_states( Display *display, struct x11drv_win_data *data );
+ extern void update_net_wm_states( struct x11drv_win_data *data );
+ extern void make_window_embedded( struct x11drv_win_data *data );
++extern Window create_dummy_client_window(void);
+ extern Window create_client_window( HWND hwnd, const XVisualInfo *visual );
+ extern void set_window_visual( struct x11drv_win_data *data, const XVisualInfo *vis, BOOL use_alpha );
+ extern void change_systray_owner( Display *display, Window systray_window );
+-- 
+2.43.2
+

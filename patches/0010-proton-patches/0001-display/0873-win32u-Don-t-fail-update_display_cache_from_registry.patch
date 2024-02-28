@@ -1,0 +1,54 @@
+From b3c3d9f1056a8dca672729868ee21f2f41fa3aa3 Mon Sep 17 00:00:00 2001
+From: Paul Gofman <pgofman@codeweavers.com>
+Date: Tue, 10 Oct 2023 14:27:58 -0600
+Subject: [PATCH 0873/1306] win32u: Don't fail
+ update_display_cache_from_registry() if there is no adapters.
+
+CW-Bug-Id: #22813
+---
+ dlls/win32u/sysparams.c | 13 +++++++++----
+ 1 file changed, 9 insertions(+), 4 deletions(-)
+
+diff --git a/dlls/win32u/sysparams.c b/dlls/win32u/sysparams.c
+index dda7a665d23..1a131ff68b0 100644
+--- a/dlls/win32u/sysparams.c
++++ b/dlls/win32u/sysparams.c
+@@ -1699,7 +1699,6 @@ static BOOL update_display_cache_from_registry(void)
+     HANDLE mutex = NULL;
+     NTSTATUS status;
+     struct gpu *gpu;
+-    BOOL ret;
+ 
+     /* If user driver did initialize the registry, then exit */
+     if (!enum_key && !(enum_key = reg_open_key( NULL, enum_keyW, sizeof(enum_keyW) )))
+@@ -1820,11 +1819,15 @@ static BOOL update_display_cache_from_registry(void)
+         NtClose( pci_key );
+     }
+ 
+-    if ((ret = !list_empty( &adapters ) && !list_empty( &monitors )))
+-        last_query_display_time = key.LastWriteTime.QuadPart;
++    if (list_empty( &adapters ))
++    {
++        WARN( "No adapters found.\n" );
++        assert( list_empty( &monitors ));
++    }
++    else if (!list_empty( &monitors )) last_query_display_time = key.LastWriteTime.QuadPart;
+     pthread_mutex_unlock( &display_lock );
+     release_display_device_init_mutex( mutex );
+-    return ret;
++    return TRUE;
+ }
+ 
+ static BOOL is_same_devmode( const DEVMODEW *a, const DEVMODEW *b )
+@@ -3022,6 +3025,8 @@ static DEVMODEW *get_display_settings( const WCHAR *devname, const DEVMODEW *dev
+     struct adapter *adapter;
+     BOOL ret;
+ 
++    if (list_empty( &adapters )) return NULL;
++
+     /* allocate an extra mode for easier iteration */
+     if (!(displays = calloc( list_count( &adapters ) + 1, sizeof(DEVMODEW) ))) return NULL;
+     mode = displays;
+-- 
+2.43.2
+

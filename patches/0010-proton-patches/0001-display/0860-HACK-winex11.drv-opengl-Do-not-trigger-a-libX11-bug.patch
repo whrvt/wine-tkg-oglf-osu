@@ -1,0 +1,49 @@
+From 541d51c38a37f1af97b6b65301c938741d114682 Mon Sep 17 00:00:00 2001
+From: Giovanni Mascellani <gmascellani@codeweavers.com>
+Date: Thu, 3 Feb 2022 09:51:28 +0100
+Subject: [PATCH 0860/1306] HACK: winex11.drv/opengl: Do not trigger a libX11
+ bug.
+
+Sometimes The Last Campfire passes invalid parameters to
+wglCreateContextAttribsARB, which on the Deck can trigger a libX11
+bug and crash Wine. When we see the invalid value we return
+an error directly, without calling glXCreateContextAttribsARB.
+
+This hack can be removed once
+https://gitlab.freedesktop.org/xorg/lib/libx11/-/issues/152 is
+fixed (which happened in libx11 1.7.4).
+
+CW-Bug-Id: #20026
+---
+ dlls/winex11.drv/opengl.c | 15 +++++++++++++++
+ 1 file changed, 15 insertions(+)
+
+diff --git a/dlls/winex11.drv/opengl.c b/dlls/winex11.drv/opengl.c
+index 6d130be7107..fa73d8205f1 100644
+--- a/dlls/winex11.drv/opengl.c
++++ b/dlls/winex11.drv/opengl.c
+@@ -3578,6 +3578,21 @@ static struct wgl_context *X11DRV_wglCreateContextAttribsARB( HDC hdc, struct wg
+                 case WGL_CONTEXT_LAYER_PLANE_ARB:
+                     break;
+                 case WGL_CONTEXT_FLAGS_ARB:
++                    /* HACK: The Last Campfire sometimes uses an
++                     * invalid value for WGL_CONTEXT_FLAGS_ARB, which
++                     * triggers
++                     * https://gitlab.freedesktop.org/xorg/lib/libx11/-/issues/152
++                     * on the Deck. If we see the invalid value we
++                     * directly return an error, so that Wine doesn't
++                     * crash. This hack can be removed once that issue
++                     * is fixed. */
++                    if (attribList[1] == 0x31b3)
++                    {
++                        WARN("return early to avoid triggering a libX11 bug\n");
++                        free(ret);
++                        release_gl_drawable(gl);
++                        return NULL;
++                    }
+                     pContextAttribList[0] = GLX_CONTEXT_FLAGS_ARB;
+                     pContextAttribList[1] = attribList[1];
+                     pContextAttribList += 2;
+-- 
+2.43.2
+

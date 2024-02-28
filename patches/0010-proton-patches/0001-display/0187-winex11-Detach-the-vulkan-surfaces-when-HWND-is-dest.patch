@@ -1,0 +1,92 @@
+From 778aa200fca5196dd1ac7c512326e76e7ee5290b Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?R=C3=A9mi=20Bernon?= <rbernon@codeweavers.com>
+Date: Tue, 28 Nov 2023 11:36:03 +0100
+Subject: [PATCH 0187/1306] winex11: Detach the vulkan surfaces when HWND is
+ destroyed.
+
+---
+ dlls/winex11.drv/vulkan.c | 27 +++++++++++++++++++--------
+ dlls/winex11.drv/window.c |  2 +-
+ dlls/winex11.drv/x11drv.h |  1 +
+ 3 files changed, 21 insertions(+), 9 deletions(-)
+
+diff --git a/dlls/winex11.drv/vulkan.c b/dlls/winex11.drv/vulkan.c
+index c84a2d32a04..72a89010407 100644
+--- a/dlls/winex11.drv/vulkan.c
++++ b/dlls/winex11.drv/vulkan.c
+@@ -214,6 +214,22 @@ static void wine_vk_surface_release( struct wine_vk_surface *surface )
+     free(surface);
+ }
+ 
++static void wine_vk_surface_detach( struct wine_vk_surface *surface )
++{
++    struct x11drv_win_data *data;
++
++    TRACE( "Detaching surface %p, hwnd %p.\n", surface, surface->hwnd );
++
++    if ((data = get_win_data( surface->hwnd )))
++    {
++        detach_client_window( data, surface->window, TRUE );
++        release_win_data( data );
++    }
++
++    surface->hwnd_thread_id = 0;
++    surface->hwnd = NULL;
++}
++
+ void destroy_vk_surface( HWND hwnd )
+ {
+     struct wine_vk_surface *surface, *next;
+@@ -222,8 +238,7 @@ void destroy_vk_surface( HWND hwnd )
+     LIST_FOR_EACH_ENTRY_SAFE( surface, next, &surface_list, struct wine_vk_surface, entry )
+     {
+         if (surface->hwnd != hwnd) continue;
+-        surface->hwnd_thread_id = 0;
+-        surface->hwnd = NULL;
++        wine_vk_surface_detach( surface );
+     }
+     pthread_mutex_unlock( &vulkan_mutex );
+ }
+@@ -236,12 +251,8 @@ void vulkan_thread_detach(void)
+     pthread_mutex_lock(&vulkan_mutex);
+     LIST_FOR_EACH_ENTRY_SAFE(surface, next, &surface_list, struct wine_vk_surface, entry)
+     {
+-        if (surface->hwnd_thread_id != thread_id)
+-            continue;
+-
+-        TRACE("Detaching surface %p, hwnd %p.\n", surface, surface->hwnd);
+-        XReparentWindow(gdi_display, surface->window, get_dummy_parent(), 0, 0);
+-        XSync(gdi_display, False);
++        if (surface->hwnd_thread_id != thread_id) continue;
++        wine_vk_surface_detach( surface );
+     }
+     pthread_mutex_unlock(&vulkan_mutex);
+ }
+diff --git a/dlls/winex11.drv/window.c b/dlls/winex11.drv/window.c
+index 87be315f097..f09da296b6a 100644
+--- a/dlls/winex11.drv/window.c
++++ b/dlls/winex11.drv/window.c
+@@ -1691,7 +1691,7 @@ Window get_dummy_parent(void)
+ /**********************************************************************
+  *		detach_client_window
+  */
+-static void detach_client_window( struct x11drv_win_data *data, Window client_window, BOOL reparent )
++void detach_client_window( struct x11drv_win_data *data, Window client_window, BOOL reparent )
+ {
+     if (data->client_window != client_window || !client_window) return;
+     data->client_window = 0;
+diff --git a/dlls/winex11.drv/x11drv.h b/dlls/winex11.drv/x11drv.h
+index d6f35c82dd1..95b30a7e2af 100644
+--- a/dlls/winex11.drv/x11drv.h
++++ b/dlls/winex11.drv/x11drv.h
+@@ -668,6 +668,7 @@ extern void make_window_embedded( struct x11drv_win_data *data );
+ extern Window create_dummy_client_window(void);
+ extern Window create_client_window( HWND hwnd, const XVisualInfo *visual, Colormap colormap );
+ extern void destroy_client_window( HWND hwnd, Window client_window );
++extern void detach_client_window( struct x11drv_win_data *data, Window client_window, BOOL reparent );
+ extern void set_window_visual( struct x11drv_win_data *data, const XVisualInfo *vis, BOOL use_alpha );
+ extern void change_systray_owner( Display *display, Window systray_window );
+ extern HWND create_foreign_window( Display *display, Window window );
+-- 
+2.43.2
+

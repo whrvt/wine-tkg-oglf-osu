@@ -1,0 +1,240 @@
+From a31db4349783e801fed60ff197dfa4648283f516 Mon Sep 17 00:00:00 2001
+From: whrvt <william@horvath.blog>
+Date: Tue, 27 Feb 2024 14:45:47 -0800
+Subject: [PATCH 08/11] Revert "winevulkan: Remove now unnecessary
+ vkGetPhysicalDeviceSurfaceCapabilities2KHR driver entry."
+
+This reverts commit 923f1d1b1000cd9aeb5bcb9df761362e64ae387c.
+---
+ dlls/winemac.drv/vulkan.c     | 15 +++++++++++++++
+ dlls/winevulkan/make_vulkan   |  3 ++-
+ dlls/winevulkan/vulkan.c      |  2 +-
+ dlls/winewayland.drv/vulkan.c | 31 +++++++++++++++++++++++++++++++
+ dlls/winex11.drv/vulkan.c     | 22 ++++++++++++++++++++++
+ include/wine/vulkan_driver.h  |  5 ++++-
+ 6 files changed, 75 insertions(+), 3 deletions(-)
+
+diff --git a/dlls/winemac.drv/vulkan.c b/dlls/winemac.drv/vulkan.c
+index f5f8dc28a22..434d11542aa 100644
+--- a/dlls/winemac.drv/vulkan.c
++++ b/dlls/winemac.drv/vulkan.c
+@@ -121,6 +121,7 @@ static void wine_vk_init(void)
+     LOAD_FUNCPTR(vkEnumerateInstanceExtensionProperties)
+     LOAD_FUNCPTR(vkGetDeviceProcAddr)
+     LOAD_FUNCPTR(vkGetInstanceProcAddr)
++    LOAD_FUNCPTR(vkGetPhysicalDeviceSurfaceCapabilities2KHR)
+     LOAD_FUNCPTR(vkGetPhysicalDeviceSurfaceCapabilitiesKHR)
+     LOAD_FUNCPTR(vkGetPhysicalDeviceSurfaceFormats2KHR)
+     LOAD_FUNCPTR(vkGetPhysicalDeviceSurfaceFormatsKHR)
+@@ -461,6 +462,19 @@ static void *macdrv_vkGetInstanceProcAddr(VkInstance instance, const char *name)
+     return pvkGetInstanceProcAddr(instance, name);
+ }
+ 
++static VkResult macdrv_vkGetPhysicalDeviceSurfaceCapabilities2KHR(VkPhysicalDevice phys_dev,
++        const VkPhysicalDeviceSurfaceInfo2KHR *surface_info, VkSurfaceCapabilities2KHR *capabilities)
++{
++    VkPhysicalDeviceSurfaceInfo2KHR surface_info_host;
++
++    TRACE("%p, %p, %p\n", phys_dev, surface_info, capabilities);
++
++    surface_info_host = *surface_info;
++    surface_info_host.surface = surface_from_handle(surface_info->surface)->host_surface;
++
++    return pvkGetPhysicalDeviceSurfaceCapabilities2KHR(phys_dev, &surface_info_host, capabilities);
++}
++
+ static VkResult macdrv_vkGetPhysicalDeviceSurfaceCapabilitiesKHR(VkPhysicalDevice phys_dev,
+         VkSurfaceKHR surface, VkSurfaceCapabilitiesKHR *capabilities)
+ {
+@@ -561,6 +575,7 @@ static const struct vulkan_funcs vulkan_funcs =
+     macdrv_vkGetDeviceProcAddr,
+     macdrv_vkGetInstanceProcAddr,
+     NULL,
++    macdrv_vkGetPhysicalDeviceSurfaceCapabilities2KHR,
+     macdrv_vkGetPhysicalDeviceSurfaceCapabilitiesKHR,
+     macdrv_vkGetPhysicalDeviceSurfaceFormats2KHR,
+     macdrv_vkGetPhysicalDeviceSurfaceFormatsKHR,
+diff --git a/dlls/winevulkan/make_vulkan b/dlls/winevulkan/make_vulkan
+index a8440ba52e5..640ed4d1478 100755
+--- a/dlls/winevulkan/make_vulkan
++++ b/dlls/winevulkan/make_vulkan
+@@ -160,7 +160,7 @@ PERF_CRITICAL_FUNCTIONS = [
+ # Functions part of our winevulkan graphics driver interface.
+ # DRIVER_VERSION should be bumped on any change to driver interface
+ # in FUNCTION_OVERRIDES
+-DRIVER_VERSION = 15
++DRIVER_VERSION = 14
+ 
+ # Table of functions for which we have a special implementation.
+ # These are regular device / instance functions for which we need
+@@ -204,6 +204,7 @@ USER_DRIVER_FUNCS = {
+     "vkGetDeviceProcAddr",
+     "vkGetInstanceProcAddr",
+     "vkGetPhysicalDevicePresentRectanglesKHR",
++    "vkGetPhysicalDeviceSurfaceCapabilities2KHR",
+     "vkGetPhysicalDeviceSurfaceCapabilitiesKHR",
+     "vkGetPhysicalDeviceSurfaceFormats2KHR",
+     "vkGetPhysicalDeviceSurfaceFormatsKHR",
+diff --git a/dlls/winevulkan/vulkan.c b/dlls/winevulkan/vulkan.c
+index a92de68479f..58e4ad090fc 100644
+--- a/dlls/winevulkan/vulkan.c
++++ b/dlls/winevulkan/vulkan.c
+@@ -1889,7 +1889,7 @@ VkResult wine_vkGetPhysicalDeviceSurfaceCapabilities2KHR(VkPhysicalDevice device
+                                                               &capabilities->surfaceCapabilities);
+     }
+ 
+-    surface_info_host.surface = surface->host_surface;
++    surface_info_host.surface = surface->driver_surface;
+ 
+     if (!NtUserIsWindow(surface->hwnd)) return VK_ERROR_SURFACE_LOST_KHR;
+     res = instance->funcs.p_vkGetPhysicalDeviceSurfaceCapabilities2KHR(physical_device->host_physical_device,
+diff --git a/dlls/winewayland.drv/vulkan.c b/dlls/winewayland.drv/vulkan.c
+index 93c95e86d2a..355270e14f8 100644
+--- a/dlls/winewayland.drv/vulkan.c
++++ b/dlls/winewayland.drv/vulkan.c
+@@ -61,6 +61,7 @@ static VkResult (*pvkEnumerateInstanceExtensionProperties)(const char *, uint32_
+ static void * (*pvkGetDeviceProcAddr)(VkDevice, const char *);
+ static void * (*pvkGetInstanceProcAddr)(VkInstance, const char *);
+ static VkResult (*pvkGetPhysicalDevicePresentRectanglesKHR)(VkPhysicalDevice, VkSurfaceKHR, uint32_t *, VkRect2D *);
++static VkResult (*pvkGetPhysicalDeviceSurfaceCapabilities2KHR)(VkPhysicalDevice, const VkPhysicalDeviceSurfaceInfo2KHR *, VkSurfaceCapabilities2KHR *);
+ static VkResult (*pvkGetPhysicalDeviceSurfaceCapabilitiesKHR)(VkPhysicalDevice, VkSurfaceKHR, VkSurfaceCapabilitiesKHR *);
+ static VkResult (*pvkGetPhysicalDeviceSurfaceFormats2KHR)(VkPhysicalDevice, const VkPhysicalDeviceSurfaceInfo2KHR *, uint32_t *, VkSurfaceFormat2KHR *);
+ static VkResult (*pvkGetPhysicalDeviceSurfaceFormatsKHR)(VkPhysicalDevice, VkSurfaceKHR, uint32_t *, VkSurfaceFormatKHR *);
+@@ -548,6 +549,34 @@ static VkResult wayland_vkGetPhysicalDevicePresentRectanglesKHR(VkPhysicalDevice
+                                                     count, rects);
+ }
+ 
++static VkResult wayland_vkGetPhysicalDeviceSurfaceCapabilities2KHR(VkPhysicalDevice phys_dev,
++                                                                   const VkPhysicalDeviceSurfaceInfo2KHR *surface_info,
++                                                                   VkSurfaceCapabilities2KHR *capabilities)
++{
++    struct wine_vk_surface *wine_vk_surface = wine_vk_surface_from_handle(surface_info->surface);
++    VkPhysicalDeviceSurfaceInfo2KHR surface_info_host;
++
++    TRACE("%p, %p, %p\n", phys_dev, surface_info, capabilities);
++
++    surface_info_host = *surface_info;
++    surface_info_host.surface = wine_vk_surface->host_surface;
++
++    if (pvkGetPhysicalDeviceSurfaceCapabilities2KHR)
++        return pvkGetPhysicalDeviceSurfaceCapabilities2KHR(phys_dev, &surface_info_host,
++                                                           capabilities);
++
++    /* Until the loader version exporting this function is common, emulate it
++     * using the older non-2 version. */
++    if (surface_info->pNext || capabilities->pNext)
++    {
++        FIXME("Emulating vkGetPhysicalDeviceSurfaceCapabilities2KHR with "
++              "vkGetPhysicalDeviceSurfaceCapabilitiesKHR, pNext is ignored.\n");
++    }
++
++    return pvkGetPhysicalDeviceSurfaceCapabilitiesKHR(phys_dev, surface_info_host.surface,
++                                                      &capabilities->surfaceCapabilities);
++}
++
+ static VkResult wayland_vkGetPhysicalDeviceSurfaceCapabilitiesKHR(VkPhysicalDevice phys_dev,
+                                                                   VkSurfaceKHR surface,
+                                                                   VkSurfaceCapabilitiesKHR *capabilities)
+@@ -676,6 +705,7 @@ static void wine_vk_init(void)
+     LOAD_FUNCPTR(vkGetDeviceProcAddr);
+     LOAD_FUNCPTR(vkGetInstanceProcAddr);
+     LOAD_OPTIONAL_FUNCPTR(vkGetPhysicalDevicePresentRectanglesKHR);
++    LOAD_OPTIONAL_FUNCPTR(vkGetPhysicalDeviceSurfaceCapabilities2KHR);
+     LOAD_FUNCPTR(vkGetPhysicalDeviceSurfaceCapabilitiesKHR);
+     LOAD_OPTIONAL_FUNCPTR(vkGetPhysicalDeviceSurfaceFormats2KHR);
+     LOAD_FUNCPTR(vkGetPhysicalDeviceSurfaceFormatsKHR);
+@@ -704,6 +734,7 @@ static const struct vulkan_funcs vulkan_funcs =
+     .p_vkGetDeviceProcAddr = wayland_vkGetDeviceProcAddr,
+     .p_vkGetInstanceProcAddr = wayland_vkGetInstanceProcAddr,
+     .p_vkGetPhysicalDevicePresentRectanglesKHR = wayland_vkGetPhysicalDevicePresentRectanglesKHR,
++    .p_vkGetPhysicalDeviceSurfaceCapabilities2KHR = wayland_vkGetPhysicalDeviceSurfaceCapabilities2KHR,
+     .p_vkGetPhysicalDeviceSurfaceCapabilitiesKHR = wayland_vkGetPhysicalDeviceSurfaceCapabilitiesKHR,
+     .p_vkGetPhysicalDeviceSurfaceFormats2KHR = wayland_vkGetPhysicalDeviceSurfaceFormats2KHR,
+     .p_vkGetPhysicalDeviceSurfaceFormatsKHR = wayland_vkGetPhysicalDeviceSurfaceFormatsKHR,
+diff --git a/dlls/winex11.drv/vulkan.c b/dlls/winex11.drv/vulkan.c
+index 8e5086a0fa3..a64c0c03b07 100644
+--- a/dlls/winex11.drv/vulkan.c
++++ b/dlls/winex11.drv/vulkan.c
+@@ -84,6 +84,7 @@ static VkResult (*pvkEnumerateInstanceExtensionProperties)(const char *, uint32_
+ static void * (*pvkGetDeviceProcAddr)(VkDevice, const char *);
+ static void * (*pvkGetInstanceProcAddr)(VkInstance, const char *);
+ static VkResult (*pvkGetPhysicalDevicePresentRectanglesKHR)(VkPhysicalDevice, VkSurfaceKHR, uint32_t *, VkRect2D *);
++static VkResult (*pvkGetPhysicalDeviceSurfaceCapabilities2KHR)(VkPhysicalDevice, const VkPhysicalDeviceSurfaceInfo2KHR *, VkSurfaceCapabilities2KHR *);
+ static VkResult (*pvkGetPhysicalDeviceSurfaceCapabilitiesKHR)(VkPhysicalDevice, VkSurfaceKHR, VkSurfaceCapabilitiesKHR *);
+ static VkResult (*pvkGetPhysicalDeviceSurfaceFormats2KHR)(VkPhysicalDevice, const VkPhysicalDeviceSurfaceInfo2KHR *, uint32_t *, VkSurfaceFormat2KHR *);
+ static VkResult (*pvkGetPhysicalDeviceSurfaceFormatsKHR)(VkPhysicalDevice, VkSurfaceKHR, uint32_t *, VkSurfaceFormatKHR *);
+@@ -122,6 +123,7 @@ static void wine_vk_init(void)
+     LOAD_FUNCPTR(vkEnumerateInstanceExtensionProperties);
+     LOAD_FUNCPTR(vkGetDeviceProcAddr);
+     LOAD_FUNCPTR(vkGetInstanceProcAddr);
++    LOAD_OPTIONAL_FUNCPTR(vkGetPhysicalDeviceSurfaceCapabilities2KHR);
+     LOAD_FUNCPTR(vkGetPhysicalDeviceSurfaceCapabilitiesKHR);
+     LOAD_OPTIONAL_FUNCPTR(vkGetPhysicalDeviceSurfaceFormats2KHR);
+     LOAD_FUNCPTR(vkGetPhysicalDeviceSurfaceFormatsKHR);
+@@ -498,6 +500,25 @@ static VkResult X11DRV_vkGetPhysicalDevicePresentRectanglesKHR(VkPhysicalDevice
+     return pvkGetPhysicalDevicePresentRectanglesKHR( phys_dev, x11_surface->host_surface, count, rects );
+ }
+ 
++static VkResult X11DRV_vkGetPhysicalDeviceSurfaceCapabilities2KHR(VkPhysicalDevice phys_dev,
++        const VkPhysicalDeviceSurfaceInfo2KHR *surface_info, VkSurfaceCapabilities2KHR *capabilities)
++{
++    VkPhysicalDeviceSurfaceInfo2KHR surface_info_host;
++    TRACE("%p, %p, %p\n", phys_dev, surface_info, capabilities);
++
++    surface_info_host = *surface_info;
++    surface_info_host.surface = surface_from_handle( surface_info->surface )->host_surface;
++
++    if (pvkGetPhysicalDeviceSurfaceCapabilities2KHR)
++        return pvkGetPhysicalDeviceSurfaceCapabilities2KHR(phys_dev, &surface_info_host, capabilities);
++
++    /* Until the loader version exporting this function is common, emulate it using the older non-2 version. */
++    if (surface_info->pNext || capabilities->pNext)
++        FIXME("Emulating vkGetPhysicalDeviceSurfaceCapabilities2KHR with vkGetPhysicalDeviceSurfaceCapabilitiesKHR, pNext is ignored.\n");
++
++    return pvkGetPhysicalDeviceSurfaceCapabilitiesKHR(phys_dev, surface_info_host.surface, &capabilities->surfaceCapabilities);
++}
++
+ static VkResult X11DRV_vkGetPhysicalDeviceSurfaceCapabilitiesKHR(VkPhysicalDevice phys_dev,
+         VkSurfaceKHR surface, VkSurfaceCapabilitiesKHR *capabilities)
+ {
+@@ -625,6 +646,7 @@ static const struct vulkan_funcs vulkan_funcs =
+     X11DRV_vkGetDeviceProcAddr,
+     X11DRV_vkGetInstanceProcAddr,
+     X11DRV_vkGetPhysicalDevicePresentRectanglesKHR,
++    X11DRV_vkGetPhysicalDeviceSurfaceCapabilities2KHR,
+     X11DRV_vkGetPhysicalDeviceSurfaceCapabilitiesKHR,
+     X11DRV_vkGetPhysicalDeviceSurfaceFormats2KHR,
+     X11DRV_vkGetPhysicalDeviceSurfaceFormatsKHR,
+diff --git a/include/wine/vulkan_driver.h b/include/wine/vulkan_driver.h
+index 08605e28442..57ab6d519d6 100644
+--- a/include/wine/vulkan_driver.h
++++ b/include/wine/vulkan_driver.h
+@@ -13,7 +13,7 @@
+ #define __WINE_VULKAN_DRIVER_H
+ 
+ /* Wine internal vulkan driver version, needs to be bumped upon vulkan_funcs changes. */
+-#define WINE_VULKAN_DRIVER_VERSION 15
++#define WINE_VULKAN_DRIVER_VERSION 14
+ 
+ struct vulkan_funcs
+ {
+@@ -31,6 +31,7 @@ struct vulkan_funcs
+     void * (*p_vkGetDeviceProcAddr)(VkDevice, const char *);
+     void * (*p_vkGetInstanceProcAddr)(VkInstance, const char *);
+     VkResult (*p_vkGetPhysicalDevicePresentRectanglesKHR)(VkPhysicalDevice, VkSurfaceKHR, uint32_t *, VkRect2D *);
++    VkResult (*p_vkGetPhysicalDeviceSurfaceCapabilities2KHR)(VkPhysicalDevice, const VkPhysicalDeviceSurfaceInfo2KHR *, VkSurfaceCapabilities2KHR *);
+     VkResult (*p_vkGetPhysicalDeviceSurfaceCapabilitiesKHR)(VkPhysicalDevice, VkSurfaceKHR, VkSurfaceCapabilitiesKHR *);
+     VkResult (*p_vkGetPhysicalDeviceSurfaceFormats2KHR)(VkPhysicalDevice, const VkPhysicalDeviceSurfaceInfo2KHR *, uint32_t *, VkSurfaceFormat2KHR *);
+     VkResult (*p_vkGetPhysicalDeviceSurfaceFormatsKHR)(VkPhysicalDevice, VkSurfaceKHR, uint32_t *, VkSurfaceFormatKHR *);
+@@ -87,6 +88,8 @@ static inline void *get_vulkan_driver_instance_proc_addr(
+         return vulkan_funcs->p_vkGetInstanceProcAddr;
+     if (!strcmp(name, "GetPhysicalDevicePresentRectanglesKHR"))
+         return vulkan_funcs->p_vkGetPhysicalDevicePresentRectanglesKHR;
++    if (!strcmp(name, "GetPhysicalDeviceSurfaceCapabilities2KHR"))
++        return vulkan_funcs->p_vkGetPhysicalDeviceSurfaceCapabilities2KHR;
+     if (!strcmp(name, "GetPhysicalDeviceSurfaceCapabilitiesKHR"))
+         return vulkan_funcs->p_vkGetPhysicalDeviceSurfaceCapabilitiesKHR;
+     if (!strcmp(name, "GetPhysicalDeviceSurfaceFormats2KHR"))
+-- 
+2.43.2
+

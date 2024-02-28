@@ -1,0 +1,27 @@
+diff --git a/dlls/mmdevapi/client.c b/dlls/mmdevapi/client.c
+index 3e0c70a44f4..ddb0687ed67 100644
+--- a/dlls/mmdevapi/client.c
++++ b/dlls/mmdevapi/client.c
+@@ -156,7 +156,7 @@ HRESULT main_loop_start(void)
+             return E_FAIL;
+         }
+ 
+-        SetThreadPriority(main_loop_thread, THREAD_PRIORITY_TIME_CRITICAL);
++        //SetThreadPriority(main_loop_thread, THREAD_PRIORITY_TIME_CRITICAL);
+         WaitForSingleObject(event, INFINITE);
+         CloseHandle(event);
+     }
+diff --git a/dlls/avrt/main.c b/dlls/avrt/main.c
+index 11111111111..11111111111 100644
+--- a/dlls/avrt/main.c
++++ b/dlls/avrt/main.c
+@@ -71,6 +71,9 @@ HANDLE WINAPI AvSetMmThreadCharacteristicsW(const WCHAR *name, DWORD *index)
+         return NULL;
+     }
+ 
++    if (!wcscmp(name, L"Audio") || !wcscmp(name, L"Pro Audio"))
++        SetThreadDescription(GetCurrentThread(), L"avrt_audio_thread");
++
+     return (HANDLE)0x12345678;
+ }
+ 

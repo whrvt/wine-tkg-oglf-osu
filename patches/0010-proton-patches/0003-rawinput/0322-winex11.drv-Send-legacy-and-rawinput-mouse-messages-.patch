@@ -1,0 +1,55 @@
+From 020a74a6b19decf4d0a531c0634dc9b352dc4809 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?R=C3=A9mi=20Bernon?= <rbernon@codeweavers.com>
+Date: Tue, 22 Nov 2022 08:36:32 +0100
+Subject: [PATCH 0322/1306] winex11.drv: Send legacy and rawinput mouse
+ messages on touch input.
+
+CW-Bug-Id: #18214
+---
+ dlls/winex11.drv/mouse.c | 16 ++++++++++++++++
+ server/queue.c           |  2 ++
+ 2 files changed, 18 insertions(+)
+
+diff --git a/dlls/winex11.drv/mouse.c b/dlls/winex11.drv/mouse.c
+index 42e5a990d7d..2b71108a54c 100644
+--- a/dlls/winex11.drv/mouse.c
++++ b/dlls/winex11.drv/mouse.c
+@@ -2048,6 +2048,22 @@ static BOOL X11DRV_RawTouchEvent( XGenericEventCookie *xev )
+     rawinput.data.mouse.usFlags = 0;
+     rawinput.data.mouse.ulRawButtons = MAKELONG( event->detail, flags );
+ 
++    __wine_send_input( 0, &input, &rawinput );
++    if (!(flags & POINTER_MESSAGE_FLAG_PRIMARY)) return TRUE;
++
++    input.type             = INPUT_MOUSE;
++    input.mi.mouseData   = 0;
++    input.mi.dwFlags     = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE;
++    if (event->evtype == XI_RawTouchBegin) input.mi.dwFlags |= MOUSEEVENTF_LEFTDOWN;
++    if (event->evtype == XI_RawTouchEnd) input.mi.dwFlags |= MOUSEEVENTF_LEFTUP;
++    input.mi.time        = x11drv_time_to_ticks( event->time );
++    input.mi.dx          = rawinput.data.mouse.lLastX;
++    input.mi.dy          = rawinput.data.mouse.lLastY;
++    input.mi.dwExtraInfo = 0xff515700;
++
++    rawinput.data.mouse.usFlags = input.mi.dwFlags;
++    rawinput.data.mouse.ulRawButtons = 0;
++
+     __wine_send_input( 0, &input, &rawinput );
+     return TRUE;
+ }
+diff --git a/server/queue.c b/server/queue.c
+index 76088e51e15..aa51719ee14 100644
+--- a/server/queue.c
++++ b/server/queue.c
+@@ -1896,6 +1896,8 @@ static int queue_mouse_message( struct desktop *desktop, user_handle_t win, cons
+         WM_MOUSEHWHEEL   /* 0x1000 = MOUSEEVENTF_HWHEEL */
+     };
+ 
++    if ((input->mouse.info & 0xffffff00) == 0xff515700) source.origin = IMDT_TOUCH;
++
+     update_desktop_cursor_pos( desktop, win, desktop->shared->cursor.x, desktop->shared->cursor.y ); /* Update last change time */
+     flags = input->mouse.flags;
+     time  = input->mouse.time;
+-- 
+2.43.2
+

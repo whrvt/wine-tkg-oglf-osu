@@ -1,0 +1,45 @@
+--- a/dlls/winepulse.drv/mmdevdrv.c
++++ b/dlls/winepulse.drv/mmdevdrv.c
+@@ -68,9 +69,6 @@ enum DriverPriority {
+     Priority_Preferred
+ };
+ 
+-static const REFERENCE_TIME MinimumPeriod = 30000;
+-static const REFERENCE_TIME DefaultPeriod = 100000;
+-
+ static pa_context *pulse_ctx;
+ static pa_mainloop *pulse_ml;
+ 
+@@ -510,11 +508,12 @@ static void pulse_probe_settings(int render, WAVEFORMATEXTENSIBLE *fmt) {
+     if (length)
+         pulse_def_period[!render] = pulse_min_period[!render] = pa_bytes_to_usec(10 * length, &ss);
+ 
+-    if (pulse_min_period[!render] < MinimumPeriod)
+-        pulse_min_period[!render] = MinimumPeriod;
+-
+-    if (pulse_def_period[!render] < DefaultPeriod)
+-        pulse_def_period[!render] = DefaultPeriod;
++    const char* penv = getenv("STAGING_AUDIO_PERIOD");
++    if (penv) {
++        int val = atoi(penv);
++        pulse_def_period[!render] = pulse_min_period[!render] = val;
++        printf("Staging audio period set to %d.\n", val);
++    }
+ 
+     wfx->wFormatTag = WAVE_FORMAT_EXTENSIBLE;
+     wfx->cbSize = sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX);
+@@ -1638,6 +1637,14 @@ static HRESULT WINAPI AudioClient_Initialize(IAudioClient *iface,
+         if (duration <= 2 * period)
+             period /= 2;
+     }
++
++    const char* denv = getenv("STAGING_AUDIO_DURATION");
++    if (denv) {
++        int val = atoi(denv);
++        duration = val;
++        printf("Staging audio duration set to %d.\n", val);
++    }
++
+     period_bytes = pa_frame_size(&This->ss) * MulDiv(period, This->ss.rate, 10000000);
+ 
+     if (duration < 20000000)

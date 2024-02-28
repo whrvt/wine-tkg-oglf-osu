@@ -1,0 +1,263 @@
+From 8d2f63a4e9bd955de44931a6cb3796676a93ae45 Mon Sep 17 00:00:00 2001
+From: Paul Gofman <pgofman@codeweavers.com>
+Date: Fri, 10 Sep 2021 22:21:13 +0300
+Subject: [PATCH 0201/1306] winex11.drv: Create offscreen GL drawable for
+ layered windows managed through UpdateLayeredWindow().
+
+CW-Bug-ID: #19216
+---
+ dlls/winex11.drv/opengl.c | 77 ++++++++++++++++++++++++++++++---------
+ dlls/winex11.drv/window.c | 13 +++++++
+ dlls/winex11.drv/x11drv.h |  2 +
+ 3 files changed, 74 insertions(+), 18 deletions(-)
+
+diff --git a/dlls/winex11.drv/opengl.c b/dlls/winex11.drv/opengl.c
+index 01883ecff94..e67d652a89a 100644
+--- a/dlls/winex11.drv/opengl.c
++++ b/dlls/winex11.drv/opengl.c
+@@ -218,6 +218,12 @@ enum dc_gl_type
+     DC_GL_PBUFFER     /* pseudo memory DC using a PBuffer */
+ };
+ 
++enum dc_gl_layered_type
++{
++    DC_GL_LAYERED_NONE,
++    DC_GL_LAYERED_UPDATES,
++};
++
+ struct gl_drawable
+ {
+     LONG                           ref;          /* reference count */
+@@ -229,6 +235,7 @@ struct gl_drawable
+     Pixmap                         pixmap;       /* base pixmap if drawable is a GLXPixmap */
+     const struct wgl_pixel_format *format;       /* pixel format for the drawable */
+     SIZE                           pixmap_size;  /* pixmap size for GLXPixmap drawables */
++    enum dc_gl_layered_type        layered_type;
+     int                            swap_interval;
+     BOOL                           refresh_swap_interval;
+     BOOL                           mutable_pf;
+@@ -1306,6 +1313,19 @@ static GLXContext create_glxcontext(Display *display, struct wgl_context *contex
+ }
+ 
+ 
++static enum dc_gl_layered_type get_gl_layered_type( HWND hwnd )
++{
++    struct x11drv_win_data *data;
++    enum dc_gl_layered_type ret;
++
++    if (!(data = get_win_data( hwnd ))) return DC_GL_LAYERED_NONE;
++    ret = data->layered && !data->layered_attributes ? DC_GL_LAYERED_UPDATES : DC_GL_LAYERED_NONE;
++    release_win_data( data );
++
++    return ret;
++}
++
++
+ /***********************************************************************
+  *              create_gl_drawable
+  */
+@@ -1333,8 +1353,31 @@ static struct gl_drawable *create_gl_drawable( HWND hwnd, const struct wgl_pixel
+     gl->hwnd = hwnd;
+     gl->mutable_pf = mutable_pf;
+ 
+-    if (!known_child && !NtUserGetWindowRelative( hwnd, GW_CHILD ) &&
+-        NtUserGetAncestor( hwnd, GA_PARENT ) == NtUserGetDesktopWindow())  /* childless top-level window */
++    gl->layered_type = get_gl_layered_type( hwnd );
++
++    if (gl->layered_type)
++    {
++        struct x11drv_win_data *data;
++
++        if ((data = get_win_data( hwnd )))
++        {
++            detach_client_window( data, data->client_window, TRUE );
++            release_win_data( data );
++        }
++
++        gl->type = DC_GL_PIXMAP_WIN;
++        gl->pixmap = XCreatePixmap( gdi_display, root_window, width, height, visual->depth );
++        if (gl->pixmap)
++        {
++            gl->drawable = pglXCreatePixmap( gdi_display, gl->format->fbconfig, gl->pixmap, NULL );
++            if (!gl->drawable) XFreePixmap( gdi_display, gl->pixmap );
++            gl->pixmap_size.cx = width;
++            gl->pixmap_size.cy = height;
++        }
++        TRACE( "%p created pixmap drawable %lx for layered window, type %u.\n", hwnd, gl->drawable, gl->layered_type );
++    }
++    else if (!known_child && !NtUserGetWindowRelative( hwnd, GW_CHILD ) &&
++             NtUserGetAncestor( hwnd, GA_PARENT ) == NtUserGetDesktopWindow())  /* childless top-level window */
+     {
+         gl->type = DC_GL_WINDOW;
+         gl->colormap = XCreateColormap( gdi_display, get_dummy_parent(), visual->visual,
+@@ -1475,24 +1518,22 @@ static BOOL set_pixel_format( HDC hdc, int format, BOOL internal )
+  */
+ void sync_gl_drawable( HWND hwnd, BOOL known_child )
+ {
++    enum dc_gl_layered_type new_layered_type;
+     struct gl_drawable *old, *new;
+ 
+     if (!(old = get_gl_drawable( hwnd, 0 ))) return;
+ 
+-    switch (old->type)
++    new_layered_type = get_gl_layered_type( hwnd );
++    if (old->type == DC_GL_PIXMAP_WIN || (known_child && old->type == DC_GL_WINDOW)
++        || old->layered_type != new_layered_type)
+     {
+-    case DC_GL_WINDOW:
+-        if (!known_child) break; /* Still a childless top-level window */
+-        /* fall through */
+-    case DC_GL_PIXMAP_WIN:
+-        if (!(new = create_gl_drawable( hwnd, old->format, known_child, old->mutable_pf ))) break;
+-        mark_drawable_dirty( old, new );
+-        XFlush( gdi_display );
+-        TRACE( "Recreated GL drawable %lx to replace %lx\n", new->drawable, old->drawable );
+-        release_gl_drawable( new );
+-        break;
+-    default:
+-        break;
++        if ((new = create_gl_drawable( hwnd, old->format, known_child, old->mutable_pf )))
++        {
++            mark_drawable_dirty( old, new );
++            XFlush( gdi_display );
++            TRACE( "Recreated GL drawable %lx to replace %lx\n", new->drawable, old->drawable );
++            release_gl_drawable( new );
++        }
+     }
+     release_gl_drawable( old );
+ }
+@@ -2002,7 +2043,7 @@ static void wglFinish(void)
+     {
+         switch (gl->type)
+         {
+-        case DC_GL_PIXMAP_WIN: escape.drawable = gl->pixmap; break;
++        case DC_GL_PIXMAP_WIN: if (!gl->layered_type) escape.drawable = gl->pixmap; break;
+         case DC_GL_CHILD_WIN:  escape.drawable = gl->window; break;
+         default: break;
+         }
+@@ -2029,7 +2070,7 @@ static void wglFlush(void)
+     {
+         switch (gl->type)
+         {
+-        case DC_GL_PIXMAP_WIN: escape.drawable = gl->pixmap; break;
++        case DC_GL_PIXMAP_WIN: if (!gl->layered_type) escape.drawable = gl->pixmap; break;
+         case DC_GL_CHILD_WIN:  escape.drawable = gl->window; break;
+         default: break;
+         }
+@@ -3387,7 +3428,7 @@ static BOOL glxdrv_wglSwapBuffers( HDC hdc )
+     {
+     case DC_GL_PIXMAP_WIN:
+         if (ctx) sync_context( ctx );
+-        escape.drawable = gl->pixmap;
++        if (!gl->layered_type) escape.drawable = gl->pixmap;
+         if (pglXCopySubBufferMESA) {
+             /* (glX)SwapBuffers has an implicit glFlush effect, however
+              * GLX_MESA_copy_sub_buffer doesn't. Make sure GL is flushed before
+diff --git a/dlls/winex11.drv/window.c b/dlls/winex11.drv/window.c
+index dca44dfd7f6..a088b45a2a0 100644
+--- a/dlls/winex11.drv/window.c
++++ b/dlls/winex11.drv/window.c
+@@ -2001,6 +2001,8 @@ void X11DRV_SetWindowStyle( HWND hwnd, INT offset, STYLESTRUCT *style )
+ {
+     struct x11drv_win_data *data;
+     DWORD changed = style->styleNew ^ style->styleOld;
++    HWND parent = NtUserGetAncestor( hwnd, GA_PARENT );
++    BOOL need_sync_gl = FALSE;
+ 
+     if (hwnd == NtUserGetDesktopWindow()) return;
+     if (!(data = get_win_data( hwnd ))) return;
+@@ -2011,12 +2013,15 @@ void X11DRV_SetWindowStyle( HWND hwnd, INT offset, STYLESTRUCT *style )
+     if (offset == GWL_EXSTYLE && (changed & WS_EX_LAYERED)) /* changing WS_EX_LAYERED resets attributes */
+     {
+         data->layered = FALSE;
++        data->layered_attributes = FALSE;
++        need_sync_gl = TRUE;
+         set_window_visual( data, &default_visual, FALSE );
+         set_window_opacity( data->display, data->whole_window, 0xff );
+         if (data->surface) set_surface_color_key( data->surface, CLR_INVALID );
+     }
+ done:
+     release_win_data( data );
++    if (need_sync_gl) sync_gl_drawable( hwnd, FALSE );
+ }
+ 
+ 
+@@ -2027,6 +2032,7 @@ void X11DRV_DestroyWindow( HWND hwnd )
+ {
+     struct x11drv_thread_data *thread_data = x11drv_thread_data();
+     struct x11drv_win_data *data;
++    HWND parent = NtUserGetAncestor( hwnd, GA_PARENT );
+ 
+     if (!(data = get_win_data( hwnd ))) return;
+ 
+@@ -3065,6 +3069,7 @@ void X11DRV_SetWindowRgn( HWND hwnd, HRGN hrgn, BOOL redraw )
+ void X11DRV_SetLayeredWindowAttributes( HWND hwnd, COLORREF key, BYTE alpha, DWORD flags )
+ {
+     struct x11drv_win_data *data = get_win_data( hwnd );
++    BOOL need_sync_gl;
+ 
+     if (data)
+     {
+@@ -3075,7 +3080,9 @@ void X11DRV_SetLayeredWindowAttributes( HWND hwnd, COLORREF key, BYTE alpha, DWO
+         if (data->surface)
+             set_surface_color_key( data->surface, (flags & LWA_COLORKEY) ? key : CLR_INVALID );
+ 
++        need_sync_gl = !data->layered || !data->layered_attributes;
+         data->layered = TRUE;
++        data->layered_attributes = TRUE;
+         if (!data->mapped)  /* mapping is delayed until attributes are set */
+         {
+             DWORD style = NtUserGetWindowLongW( data->hwnd, GWL_STYLE );
+@@ -3085,10 +3092,12 @@ void X11DRV_SetLayeredWindowAttributes( HWND hwnd, COLORREF key, BYTE alpha, DWO
+             {
+                 release_win_data( data );
+                 map_window( hwnd, style );
++                if (need_sync_gl) sync_gl_drawable( hwnd, FALSE );
+                 return;
+             }
+         }
+         release_win_data( data );
++        if (need_sync_gl) sync_gl_drawable( hwnd, FALSE );
+     }
+     else
+     {
+@@ -3117,12 +3126,14 @@ BOOL X11DRV_UpdateLayeredWindow( HWND hwnd, const UPDATELAYEREDWINDOWINFO *info,
+     BITMAPINFO *bmi = (BITMAPINFO *)buffer;
+     void *src_bits, *dst_bits;
+     RECT rect, src_rect;
++    BOOL need_sync_gl;
+     HDC hdc = 0;
+     HBITMAP dib;
+     BOOL mapped, ret = FALSE;
+ 
+     if (!(data = get_win_data( hwnd ))) return FALSE;
+ 
++    need_sync_gl = !data->layered;
+     data->layered = TRUE;
+     if (!data->embedded && argb_visual.visualid) set_window_visual( data, &argb_visual, TRUE );
+ 
+@@ -3152,6 +3163,8 @@ BOOL X11DRV_UpdateLayeredWindow( HWND hwnd, const UPDATELAYEREDWINDOWINFO *info,
+             map_window( hwnd, style );
+     }
+ 
++    if (need_sync_gl) sync_gl_drawable( hwnd, FALSE );
++
+     if (!surface) return FALSE;
+     if (!info->hdcSrc)
+     {
+diff --git a/dlls/winex11.drv/x11drv.h b/dlls/winex11.drv/x11drv.h
+index 71ff7049744..6f209e9ac7f 100644
+--- a/dlls/winex11.drv/x11drv.h
++++ b/dlls/winex11.drv/x11drv.h
+@@ -630,6 +630,8 @@ struct x11drv_win_data
+     UINT        embedded : 1;   /* is window an XEMBED client? */
+     UINT        shaped : 1;     /* is window using a custom region shape? */
+     UINT        layered : 1;    /* is window layered and with valid attributes? */
++    UINT        layered_attributes : 1;
++                                /* is layered window has leyered attributes set (or otherwise managed with UpdateLayeredWindow()? */
+     UINT        use_alpha : 1;  /* does window use an alpha channel? */
+     UINT        skip_taskbar : 1; /* does window should be deleted from taskbar */
+     UINT        add_taskbar : 1; /* does window should be added to taskbar regardless of style */
+-- 
+2.43.2
+

@@ -22,7 +22,7 @@ index 11111111111..11111111111 100644
      INT src_stride, const BYTE *src_bits, PixelFormat src_format, ColorPalette *src_palette);
  
 +extern GpStatus alpha_blend_bmp_pixels(GpGraphics *graphics, INT dst_x, INT dst_y,
-+    const BYTE *src, INT src_width, INT src_height, INT src_stride, const PixelFormat fmt) DECLSPEC_HIDDEN;
++    const BYTE *src, INT src_width, INT src_height, INT src_stride, const PixelFormat fmt);
 +
  extern PixelFormat apply_image_attributes(const GpImageAttributes *attributes, LPBYTE data,
      UINT width, UINT height, INT stride, ColorAdjustType type, PixelFormat fmt);

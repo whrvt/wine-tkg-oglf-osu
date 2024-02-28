@@ -1,0 +1,92 @@
+From be77b218ff6003a64a0bbba5e8fdd53ebcbc5ebf Mon Sep 17 00:00:00 2001
+From: whrvt <william@horvath.blog>
+Date: Tue, 27 Feb 2024 14:54:28 -0800
+Subject: [PATCH 3/5] Revert "winevulkan: Return VK_ERROR_SURFACE_LOST_KHR from
+ surface functions."
+
+This reverts commit 844d4cd20604de4d9dcb68659e8dc25440221705.
+---
+ dlls/vulkan-1/tests/vulkan.c |  3 +++
+ dlls/winevulkan/vulkan.c     | 36 ++++++++++++++++++++----------------
+ 2 files changed, 23 insertions(+), 16 deletions(-)
+
+diff --git a/dlls/vulkan-1/tests/vulkan.c b/dlls/vulkan-1/tests/vulkan.c
+index 5417585e00c..6142d73c903 100644
+--- a/dlls/vulkan-1/tests/vulkan.c
++++ b/dlls/vulkan-1/tests/vulkan.c
+@@ -635,8 +635,11 @@ static void test_win32_surface_hwnd(VkInstance vk_instance, VkPhysicalDevice vk_
+         if (IsWindow(hwnd))
+             ok(vr == VK_SUCCESS, "Got unexpected vr %d.\n", vr);
+         else
++        {
++            todo_wine
+             ok(vr == VK_ERROR_SURFACE_LOST_KHR /* Nvidia */ || vr == VK_ERROR_UNKNOWN /* AMD */,
+                     "Got unexpected vr %d.\n", vr);
++        }
+     }
+ 
+     count = 0;
+diff --git a/dlls/winevulkan/vulkan.c b/dlls/winevulkan/vulkan.c
+index 240ba3e8618..95bce62cc8d 100644
+--- a/dlls/winevulkan/vulkan.c
++++ b/dlls/winevulkan/vulkan.c
+@@ -1746,36 +1746,40 @@ static inline void adjust_max_image_count(struct wine_phys_dev *phys_dev, VkSurf
+     }
+ }
+ 
+-VkResult wine_vkGetPhysicalDeviceSurfaceCapabilitiesKHR(VkPhysicalDevice device_handle, VkSurfaceKHR surface_handle,
++VkResult wine_vkGetPhysicalDeviceSurfaceCapabilitiesKHR(VkPhysicalDevice handle, VkSurfaceKHR surface_handle,
+                                                         VkSurfaceCapabilitiesKHR *capabilities)
+ {
+-    struct wine_phys_dev *physical_device = wine_phys_dev_from_handle(device_handle);
++    struct wine_phys_dev *phys_dev = wine_phys_dev_from_handle(handle);
+     struct wine_surface *surface = wine_surface_from_handle(surface_handle);
+-    struct wine_instance *instance = physical_device->instance;
+     VkResult res;
+ 
+-    if (!NtUserIsWindow(surface->hwnd)) return VK_ERROR_SURFACE_LOST_KHR;
+-    res = instance->funcs.p_vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical_device->host_physical_device,
+-                                                                      surface->driver_surface, capabilities);
+-    if (res == VK_SUCCESS) adjust_max_image_count(physical_device, capabilities);
++    res = phys_dev->instance->funcs.p_vkGetPhysicalDeviceSurfaceCapabilitiesKHR(phys_dev->host_physical_device,
++                                                                                surface->driver_surface, capabilities);
++
++    if (res == VK_SUCCESS)
++        adjust_max_image_count(phys_dev, capabilities);
++
+     return res;
+ }
+ 
+-VkResult wine_vkGetPhysicalDeviceSurfaceCapabilities2KHR(VkPhysicalDevice device_handle, const VkPhysicalDeviceSurfaceInfo2KHR *surface_info,
++VkResult wine_vkGetPhysicalDeviceSurfaceCapabilities2KHR(VkPhysicalDevice handle,
++                                                         const VkPhysicalDeviceSurfaceInfo2KHR *surface_info,
+                                                          VkSurfaceCapabilities2KHR *capabilities)
+ {
+-    struct wine_phys_dev *physical_device = wine_phys_dev_from_handle(device_handle);
++    struct wine_phys_dev *phys_dev = wine_phys_dev_from_handle(handle);
+     struct wine_surface *surface = wine_surface_from_handle(surface_info->surface);
+-    VkPhysicalDeviceSurfaceInfo2KHR surface_info_host = *surface_info;
+-    struct wine_instance *instance = physical_device->instance;
++    VkPhysicalDeviceSurfaceInfo2KHR host_info;
+     VkResult res;
+ 
+-    surface_info_host.surface = surface->driver_surface;
++    host_info.sType = surface_info->sType;
++    host_info.pNext = surface_info->pNext;
++    host_info.surface = surface->driver_surface;
++    res = phys_dev->instance->funcs.p_vkGetPhysicalDeviceSurfaceCapabilities2KHR(phys_dev->host_physical_device,
++                                                                                 &host_info, capabilities);
++
++    if (res == VK_SUCCESS)
++        adjust_max_image_count(phys_dev, &capabilities->surfaceCapabilities);
+ 
+-    if (!NtUserIsWindow(surface->hwnd)) return VK_ERROR_SURFACE_LOST_KHR;
+-    res = instance->funcs.p_vkGetPhysicalDeviceSurfaceCapabilities2KHR(physical_device->host_physical_device,
+-                                                                       &surface_info_host, capabilities);
+-    if (res == VK_SUCCESS) adjust_max_image_count(physical_device, &capabilities->surfaceCapabilities);
+     return res;
+ }
+ 
+-- 
+2.43.2
+

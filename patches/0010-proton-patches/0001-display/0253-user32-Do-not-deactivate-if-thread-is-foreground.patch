@@ -1,0 +1,29 @@
+From 887e52bcc9a969edac3adf27e1c99d98d7a9ac95 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?R=C3=A9mi=20Bernon?= <rbernon@codeweavers.com>
+Date: Thu, 27 Jan 2022 18:24:02 +0100
+Subject: [PATCH 0253/1306] user32: Do not deactivate if thread is foreground.
+
+Instead of only checking that the window is foreground.
+
+CW-Bug-Id: #19612
+---
+ dlls/win32u/message.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/dlls/win32u/message.c b/dlls/win32u/message.c
+index 91f836a60bd..0b4b2f6b7ba 100644
+--- a/dlls/win32u/message.c
++++ b/dlls/win32u/message.c
+@@ -2102,7 +2102,8 @@ static LRESULT handle_internal_message( HWND hwnd, UINT msg, WPARAM wparam, LPAR
+         if (is_desktop_window( hwnd )) return 0;
+         return set_window_style( hwnd, wparam, lparam );
+     case WM_WINE_SETACTIVEWINDOW:
+-        if (!wparam && NtUserGetForegroundWindow() == hwnd) return 0;
++        if (!wparam && NtUserGetWindowThread( NtUserGetForegroundWindow(), NULL ) == GetCurrentThreadId())
++            return 0;
+         return (LRESULT)NtUserSetActiveWindow( (HWND)wparam );
+     case WM_WINE_KEYBOARD_LL_HOOK:
+     case WM_WINE_MOUSE_LL_HOOK:
+-- 
+2.43.2
+

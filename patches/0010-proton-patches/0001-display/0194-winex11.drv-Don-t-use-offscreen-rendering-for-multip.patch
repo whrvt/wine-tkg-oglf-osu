@@ -1,0 +1,32 @@
+From a4ab8544243492f20b2ae26d8dba7d042911219e Mon Sep 17 00:00:00 2001
+From: Paul Gofman <pgofman@codeweavers.com>
+Date: Fri, 17 Feb 2023 16:15:06 -0600
+Subject: [PATCH 0194/1306] winex11.drv: Don't use offscreen rendering for
+ multiple Vulkan swapchains.
+
+Instead, switch the client window if the last presented swapchain has a
+different one.
+
+CW-Bug-Id: #21902
+---
+ dlls/winex11.drv/vulkan.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/dlls/winex11.drv/vulkan.c b/dlls/winex11.drv/vulkan.c
+index 2badb1e38f3..d31ddab4f03 100644
+--- a/dlls/winex11.drv/vulkan.c
++++ b/dlls/winex11.drv/vulkan.c
+@@ -524,7 +524,10 @@ static void X11DRV_vkDestroySwapchainKHR(VkDevice device, VkSwapchainKHR swapcha
+     pvkDestroySwapchainKHR(device, swapchain, NULL /* allocator */);
+ 
+     if (!XFindContext( gdi_display, (XID)swapchain, swapchain_context, (char **)&surface ))
++    {
+         wine_vk_surface_release( surface );
++        XDeleteContext( gdi_display, (XID)swapchain, swapchain_context );
++    }
+ }
+ 
+ static VkResult X11DRV_vkEnumerateInstanceExtensionProperties(const char *layer_name,
+-- 
+2.43.2
+

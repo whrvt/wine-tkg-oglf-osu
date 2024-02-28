@@ -13,20 +13,17 @@ diff --git a/dlls/winex11.drv/window.c b/dlls/winex11.drv/window.c
 index 11111111111..11111111111 100644
 --- a/dlls/winex11.drv/window.c
 +++ b/dlls/winex11.drv/window.c
-@@ -3027,7 +3027,12 @@ void X11DRV_WindowPosChanged( HWND hwnd, HWND insert_after, UINT swp_flags,
+@@ -3115,7 +3115,9 @@ void X11DRV_WindowPosChanged( HWND hwnd, HWND insert_after, UINT swp_flags,
          else
          {
              if (swp_flags & (SWP_FRAMECHANGED|SWP_STATECHANGED)) set_wm_hints( data );
--            if (!event_type) update_net_wm_states( data );
+-            if (!event_type || event_type == PropertyNotify)
 +            if (!event_type || event_type == PropertyNotify ||
 +                (((swp_flags & (SWP_NOMOVE|SWP_NOSIZE)) != (SWP_NOMOVE|SWP_NOSIZE)) &&
 +                 (NtUserIsWindowRectFullScreen( &old_whole_rect ) != NtUserIsWindowRectFullScreen( &data->whole_rect ))))
-+            {
-+                update_net_wm_states( data );
-+            }
-         }
-     }
- 
+             {
+                 update_net_wm_states( data );
+                 if (!prev_window && insert_after && data->net_wm_state & (1 << NET_WM_STATE_FULLSCREEN))
 -- 
 0.0.0
 

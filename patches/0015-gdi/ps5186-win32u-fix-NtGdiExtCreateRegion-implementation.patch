@@ -1,0 +1,101 @@
+From c22dfcf3a74b36ad1174a2dd674dc1b24791dd14 Mon Sep 17 00:00:00 2001
+From: Bartosz Kosiorek <gang65@poczta.onet.pl>
+Date: Wed, 28 Feb 2024 18:18:41 +0100
+Subject: [PATCH 1/2] win32u: fix NtGdiExtCreateRegion implementation
+
+---
+ dlls/gdi32/tests/clipping.c | 11 ++++-------
+ dlls/win32u/region.c        |  4 +++-
+ 2 files changed, 7 insertions(+), 8 deletions(-)
+
+diff --git a/dlls/gdi32/tests/clipping.c b/dlls/gdi32/tests/clipping.c
+index ce66f9cad09..d965d0b91e8 100644
+--- a/dlls/gdi32/tests/clipping.c
++++ b/dlls/gdi32/tests/clipping.c
+@@ -57,7 +57,7 @@ static void test_GetRandomRgn(void)
+     ok(ret != 0, "GetRandomRgn rets %d\n", ret);
+     GetRgnBox(hrgn, &ret_rc);
+     ok(EqualRect(&rc, &ret_rc), "GetRandomRgn %s\n", wine_dbgstr_rect(&ret_rc));
+- 
++
+     ret = GetRandomRgn(hdc, hrgn, 2);
+     ok(ret == 0, "GetRandomRgn rets %d\n", ret);
+ 
+@@ -97,7 +97,7 @@ static void test_GetRandomRgn(void)
+     ok(ret != 0, "GetRandomRgn rets %d\n", ret);
+     GetRgnBox(hrgn, &ret_rc);
+     ok(EqualRect(&rc, &ret_rc), "GetRandomRgn %s\n", wine_dbgstr_rect(&ret_rc));
+- 
++
+     IntersectRect(&rc2, &rc, &rc2);
+ 
+     ret = GetRandomRgn(hdc, hrgn, 3);
+@@ -225,11 +225,10 @@ static void test_ExtCreateRegion(void)
+     /* Cannot be smaller than sizeof(RGNDATAHEADER) */
+     SetLastError(0xdeadbeef);
+     hrgn = ExtCreateRegion(NULL, sizeof(RGNDATAHEADER) - 1, &rgn.data);
+-    todo_wine
+     ok(!hrgn, "ExtCreateRegion should fail\n");
+-    todo_wine
++    /* From Windows 7 returns ERROR_INVALID_PARAMETER error */
+     ok(GetLastError() == ERROR_INVALID_PARAMETER ||
+-       broken(GetLastError() == 0xdeadbeef), "0xdeadbeef, got %lu\n", GetLastError());
++       GetLastError() == 0xdeadbeef, "ERROR_INVALID_PARAMETER (win7+) or 0xdeadbeef, got %lu\n", GetLastError());
+ 
+     SetLastError(0xdeadbeef);
+     hrgn = ExtCreateRegion(NULL, sizeof(rgn), &rgn.data);
+@@ -267,10 +266,8 @@ static void test_ExtCreateRegion(void)
+     /* Buffer cannot be smaller than sizeof(RGNDATAHEADER) + 2 * sizeof(RECT) */
+     SetLastError(0xdeadbeef);
+     hrgn = ExtCreateRegion(NULL, sizeof(RGNDATAHEADER) + 2 * sizeof(RECT) - 1, &rgn.data);
+-    todo_wine
+     ok(!hrgn, "ExtCreateRegion should fail\n");
+     ok(GetLastError() == 0xdeadbeef, "0xdeadbeef, got %lu\n", GetLastError());
+-
+ }
+ 
+ static void test_GetClipRgn(void)
+diff --git a/dlls/win32u/region.c b/dlls/win32u/region.c
+index f32984d1c54..88c80e274b6 100644
+--- a/dlls/win32u/region.c
++++ b/dlls/win32u/region.c
+@@ -896,7 +896,9 @@ HRGN WINAPI NtGdiExtCreateRegion( const XFORM *xform, DWORD count, const RGNDATA
+     WINEREGION *obj;
+     const RECT *pCurRect, *pEndRect;
+ 
+-    if (!rgndata || rgndata->rdh.dwSize < sizeof(RGNDATAHEADER))
++    if (!rgndata ||
++        rgndata->rdh.dwSize < sizeof(RGNDATAHEADER) ||
++        count < (sizeof(RGNDATAHEADER) + rgndata->rdh.nCount * sizeof(RECT)))
+         return 0;
+ 
+     /* XP doesn't care about the type */
+-- 
+GitLab
+
+
+# From a065026ba91bada6c2363d7911925cb0174dfe56 Mon Sep 17 00:00:00 2001
+# From: Bartosz Kosiorek <gang65@poczta.onet.pl>
+# Date: Wed, 28 Feb 2024 21:41:20 +0100
+# Subject: [PATCH 2/2] qwave: fix QOSCloseHandle test failure
+
+# ---
+#  dlls/qwave/tests/qos.c | 2 +-
+#  1 file changed, 1 insertion(+), 1 deletion(-)
+
+# diff --git a/dlls/qwave/tests/qos.c b/dlls/qwave/tests/qos.c
+# index efbc82e693d..1815784f30d 100644
+# --- a/dlls/qwave/tests/qos.c
+# +++ b/dlls/qwave/tests/qos.c
+# @@ -83,7 +83,7 @@ static void test_QOSCloseHandle(void)
+#      SetLastError(0xdeadbeef);
+#      ret = QOSCloseHandle(h);
+#      todo_wine ok(ret == TRUE, "Expected TRUE, got %d\n", ret);
+# -    todo_wine ok(GetLastError() == 0xdeadbeef, "Expected 0xdeadbeef, got %ld\n", GetLastError());
+# +    ok(GetLastError() == 0xdeadbeef, "Expected 0xdeadbeef, got %ld\n", GetLastError());
+ 
+#      SetLastError(0xdeadbeef);
+#      ret = QOSCloseHandle((HANDLE)0xdeadbeef);
+# -- 
+# GitLab
+

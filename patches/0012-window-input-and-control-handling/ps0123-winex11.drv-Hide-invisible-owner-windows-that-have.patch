@@ -68,7 +68,7 @@ diff --git a/dlls/winex11.drv/window.c b/dlls/winex11.drv/window.c
 index 11111111111..11111111111 100644
 --- a/dlls/winex11.drv/window.c
 +++ b/dlls/winex11.drv/window.c
-@@ -1112,14 +1112,24 @@ static void update_net_wm_fullscreen_monitors( struct x11drv_win_data *data )
+@@ -1259,13 +1259,24 @@ static void update_net_wm_fullscreen_monitors( struct x11drv_win_data *data )
      data->net_wm_fullscreen_monitors_set = TRUE;
  }
  
@@ -80,19 +80,19 @@ index 11111111111..11111111111 100644
 +    return NtUserHasVisibleOwnedWindow( data->hwnd );
 +}
 +
++
  /***********************************************************************
   *     update_net_wm_states
   */
  void update_net_wm_states( struct x11drv_win_data *data )
  {
-     UINT i, style, ex_style, new_state = 0;
-+    struct x11drv_win_data *owner_data;
-     RECT window_rect, client_rect;
-     BOOL fullscreen;
-+    HWND owner;
      unsigned long net_wm_bypass_compositor = 0;
++    struct x11drv_win_data *owner_data;
+     UINT i, style, ex_style, new_state = 0;
++    HWND owner;
  
      if (!data->managed) return;
+     if (data->whole_window == root_window)
 @@ -1164,6 +1174,19 @@ void update_net_wm_states( struct x11drv_win_data *data )
              new_state |= (1 << NET_WM_STATE_SKIP_TASKBAR);
      }

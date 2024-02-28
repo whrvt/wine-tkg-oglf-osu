@@ -13,9 +13,9 @@ index 11111111111..11111111111 100644
 --- a/dlls/winex11.drv/x11drv_main.c
 +++ b/dlls/winex11.drv/x11drv_main.c
 @@ -329,7 +329,10 @@ static int error_handler( Display *display, XErrorEvent *error_evt )
-              error_evt->serial, error_evt->request_code );
-         assert( 0 );
-     }
+     TRACE("passing on error %d req %d:%d res 0x%lx\n",
+             error_evt->error_code, error_evt->request_code,
+             error_evt->minor_code, error_evt->resourceid);
 -    old_error_handler( display, error_evt );
 +    /* Xlib never returns a NULL previous error handler, but other
 +       implementations, like Steam's overlay, do. */

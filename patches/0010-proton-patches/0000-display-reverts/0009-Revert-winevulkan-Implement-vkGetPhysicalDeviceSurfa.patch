@@ -1,0 +1,33 @@
+From cb98a7af8fc92e9b57413307854b54c371299290 Mon Sep 17 00:00:00 2001
+From: whrvt <william@horvath.blog>
+Date: Tue, 27 Feb 2024 14:45:47 -0800
+Subject: [PATCH 09/11] Revert "winevulkan: Implement
+ vkGetPhysicalDeviceSurfaceCapabilities2KHR fallback."
+
+This reverts commit c83f86bef51918b69ad3c0e23974356b48aa0e9f.
+---
+ dlls/winevulkan/vulkan.c | 8 --------
+ 1 file changed, 8 deletions(-)
+
+diff --git a/dlls/winevulkan/vulkan.c b/dlls/winevulkan/vulkan.c
+index 58e4ad090fc..5f5f81dcd0b 100644
+--- a/dlls/winevulkan/vulkan.c
++++ b/dlls/winevulkan/vulkan.c
+@@ -1881,14 +1881,6 @@ VkResult wine_vkGetPhysicalDeviceSurfaceCapabilities2KHR(VkPhysicalDevice device
+     struct wine_instance *instance = physical_device->instance;
+     VkResult res;
+ 
+-    if (!instance->funcs.p_vkGetPhysicalDeviceSurfaceCapabilities2KHR)
+-    {
+-        /* Until the loader version exporting this function is common, emulate it using the older non-2 version. */
+-        if (surface_info->pNext || capabilities->pNext) FIXME("Emulating vkGetPhysicalDeviceSurfaceCapabilities2KHR, ignoring pNext.\n");
+-        return wine_vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device_handle, surface_info->surface,
+-                                                              &capabilities->surfaceCapabilities);
+-    }
+-
+     surface_info_host.surface = surface->driver_surface;
+ 
+     if (!NtUserIsWindow(surface->hwnd)) return VK_ERROR_SURFACE_LOST_KHR;
+-- 
+2.43.2
+

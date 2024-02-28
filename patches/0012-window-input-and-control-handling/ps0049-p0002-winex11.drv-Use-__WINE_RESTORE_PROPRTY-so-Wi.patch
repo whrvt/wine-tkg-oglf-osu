@@ -49,7 +49,7 @@ index 11111111111..11111111111 100644
 @@ -1411,12 +1414,15 @@ static void handle_wm_state_notify( HWND hwnd, XPropertyEvent *event, BOOL updat
                  release_win_data( data );
                  if ((style & (WS_MINIMIZE | WS_VISIBLE)) == (WS_MINIMIZE | WS_VISIBLE))
-                     set_foreground_window( hwnd, x11drv_time_to_ticks( event->time ) );
+                     NtUserSetForegroundWindow( hwnd );
 -                send_message( hwnd, WM_SYSCOMMAND, SC_RESTORE, 0 );
                  if (keep_state && (data = get_win_data( hwnd )))
                  {

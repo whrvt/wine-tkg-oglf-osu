@@ -1,0 +1,35 @@
+From 61fb0f4a9a193ece9896224654defdc049624629 Mon Sep 17 00:00:00 2001
+From: Paul Gofman <pgofman@codeweavers.com>
+Date: Fri, 20 May 2022 18:47:05 -0500
+Subject: [PATCH 0862/1306] winex11.drv: Sync calls to vkQueuePresentKHR().
+
+CW-Bug-Id: #18863
+---
+ dlls/winex11.drv/vulkan.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/dlls/winex11.drv/vulkan.c b/dlls/winex11.drv/vulkan.c
+index 412b712f78d..33761764c74 100644
+--- a/dlls/winex11.drv/vulkan.c
++++ b/dlls/winex11.drv/vulkan.c
+@@ -1035,6 +1035,7 @@ static VkResult X11DRV_vkAcquireNextImage2KHR( VkDevice device, const VkAcquireN
+ 
+ static VkResult X11DRV_vkQueuePresentKHR(VkQueue queue, const VkPresentInfoKHR *present_info)
+ {
++    static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
+     VkResult res;
+     UINT i;
+ 
+@@ -1054,7 +1055,9 @@ static VkResult X11DRV_vkQueuePresentKHR(VkQueue queue, const VkPresentInfoKHR *
+         }
+     }
+ 
++    pthread_mutex_lock( &lock );
+     res = pvkQueuePresentKHR(queue, present_info);
++    pthread_mutex_unlock( &lock );
+ 
+     if (TRACE_ON(fps))
+     {
+-- 
+2.43.2
+

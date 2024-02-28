@@ -102,7 +102,7 @@ index 11111111111..11111111111 100644
      thread->suspend         = 0;
      thread->dbg_hidden      = 0;
      thread->desktop_users   = 0;
-@@ -677,31 +684,151 @@ affinity_t get_thread_affinity( struct thread *thread )
+@@ -677,28 +684,151 @@ affinity_t get_thread_affinity( struct thread *thread )
      return mask;
  }
  
@@ -259,10 +259,7 @@ index 11111111111..11111111111 100644
 -        if ((req->priority >= min && req->priority <= max) ||
 -            req->priority == THREAD_PRIORITY_IDLE ||
 -            req->priority == THREAD_PRIORITY_TIME_CRITICAL)
--        {
 -            thread->priority = req->priority;
--            set_scheduler_priority( thread );
--        }
 -        else
 -            set_error( STATUS_INVALID_PARAMETER );
 +        if (set_thread_priority( thread, thread->process->priority, req->priority ))

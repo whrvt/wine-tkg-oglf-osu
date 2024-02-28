@@ -1,0 +1,162 @@
+From 19b5cf85bc36f21f178a9fb7b355e259245d1179 Mon Sep 17 00:00:00 2001
+From: whrvt <william@horvath.blog>
+Date: Sat, 24 Feb 2024 09:15:28 -0800
+Subject: [PATCH 2/2] Revert "ntdll: Assume process-private futexes are always
+ present on Linux."
+
+This reverts commit 455086e2958f9118ed7a1f9f52cc90964b8c7dd5.
+---
+ README.md              |  2 +-
+ dlls/ntdll/unix/sync.c | 59 ++++++++++++++++++++++++++++++------------
+ 2 files changed, 44 insertions(+), 17 deletions(-)
+
+diff --git a/README.md b/README.md
+index 8a804b30dfc..888e95895e2 100644
+--- a/README.md
++++ b/README.md
+@@ -42,7 +42,7 @@ especially the wealth of information found at https://www.winehq.org.
+ 
+ To compile and run Wine, you must have one of the following:
+ 
+-- Linux version 2.6.22 or later
++- Linux version 2.0.36 or later
+ - FreeBSD 12.4 or later
+ - Solaris x86 9 or later
+ - NetBSD-current
+diff --git a/dlls/ntdll/unix/sync.c b/dlls/ntdll/unix/sync.c
+index 1df2ea6e9d2..bfbcaf4a851 100644
+--- a/dlls/ntdll/unix/sync.c
++++ b/dlls/ntdll/unix/sync.c
+@@ -103,7 +103,10 @@ static inline ULONGLONG monotonic_counter(void)
+ 
+ #ifdef __linux__
+ 
+-#include <linux/futex.h>
++#define FUTEX_WAIT 0
++#define FUTEX_WAKE 1
++
++static int futex_private = 128;
+ 
+ static inline int futex_wait( const LONG *addr, int val, struct timespec *timeout )
+ {
+@@ -115,15 +118,32 @@ static inline int futex_wait( const LONG *addr, int val, struct timespec *timeou
+             long tv_nsec;
+         } timeout32 = { timeout->tv_sec, timeout->tv_nsec };
+ 
+-        return syscall( __NR_futex, addr, FUTEX_WAIT_PRIVATE, val, &timeout32, 0, 0 );
++        return syscall( __NR_futex, addr, FUTEX_WAIT | futex_private, val, &timeout32, 0, 0 );
+     }
+ #endif
+-    return syscall( __NR_futex, addr, FUTEX_WAIT_PRIVATE, val, timeout, 0, 0 );
++    return syscall( __NR_futex, addr, FUTEX_WAIT | futex_private, val, timeout, 0, 0 );
+ }
+ 
+ static inline int futex_wake( const LONG *addr, int val )
+ {
+-    return syscall( __NR_futex, addr, FUTEX_WAKE_PRIVATE, val, NULL, 0, 0 );
++    return syscall( __NR_futex, addr, FUTEX_WAKE | futex_private, val, NULL, 0, 0 );
++}
++
++static inline int use_futexes(void)
++{
++    static LONG supported = -1;
++
++    if (supported == -1)
++    {
++        futex_wait( &supported, 10, NULL );
++        if (errno == ENOSYS)
++        {
++            futex_private = 0;
++            futex_wait( &supported, 10, NULL );
++        }
++        supported = (errno != ENOSYS);
++    }
++    return supported;
+ }
+ 
+ #endif
+@@ -2336,10 +2356,11 @@ union tid_alert_entry
+ {
+ #ifdef HAVE_KQUEUE
+     int kq;
+-#elif defined(__linux__)
+-    LONG futex;
+ #else
+     HANDLE event;
++#ifdef __linux__
++    LONG futex;
++#endif
+ #endif
+ };
+ 
+@@ -2405,9 +2426,12 @@ static union tid_alert_entry *get_tid_alert_entry( HANDLE tid )
+         if (InterlockedCompareExchange( (LONG *)&entry->kq, kq, 0 ))
+             close( kq );
+     }
+-#elif defined(__linux__)
+-    return entry;
+ #else
++#ifdef __linux__
++    if (use_futexes())
++        return entry;
++#endif
++
+     if (!entry->event)
+     {
+         HANDLE event;
+@@ -2449,14 +2473,17 @@ NTSTATUS WINAPI NtAlertThreadByThreadId( HANDLE tid )
+         kevent( entry->kq, &signal_event, 1, NULL, 0, NULL );
+         return STATUS_SUCCESS;
+     }
+-#elif defined(__linux__)
++#else
++#ifdef __linux__
++    if (use_futexes())
+     {
+         LONG *futex = &entry->futex;
+         if (!InterlockedExchange( futex, 1 ))
+             futex_wake( futex, 1 );
+         return STATUS_SUCCESS;
+     }
+-#else
++#endif
++
+     return NtSetEvent( entry->event, NULL );
+ #endif
+ }
+@@ -2544,12 +2571,14 @@ NTSTATUS WINAPI NtWaitForAlertByThreadId( const void *address, const LARGE_INTEG
+ NTSTATUS WINAPI NtWaitForAlertByThreadId( const void *address, const LARGE_INTEGER *timeout )
+ {
+     union tid_alert_entry *entry = get_tid_alert_entry( NtCurrentTeb()->ClientId.UniqueThread );
++    NTSTATUS status;
+ 
+     TRACE( "%p %s\n", address, debugstr_timeout( timeout ) );
+ 
+     if (!entry) return STATUS_INVALID_CID;
+ 
+ #ifdef __linux__
++    if (use_futexes())
+     {
+         LONG *futex = &entry->futex;
+         ULONGLONG end;
+@@ -2581,13 +2610,11 @@ NTSTATUS WINAPI NtWaitForAlertByThreadId( const void *address, const LARGE_INTEG
+         }
+         return STATUS_ALERTED;
+     }
+-#else
+-    {
+-        NTSTATUS status = NtWaitForSingleObject( entry->event, FALSE, timeout );
+-        if (!status) return STATUS_ALERTED;
+-        return status;
+-    }
+ #endif
++
++    status = NtWaitForSingleObject( entry->event, FALSE, timeout );
++    if (!status) return STATUS_ALERTED;
++    return status;
+ }
+ 
+ #endif
+-- 
+2.43.2
+

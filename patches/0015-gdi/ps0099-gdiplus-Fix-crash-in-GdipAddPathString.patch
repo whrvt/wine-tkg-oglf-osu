@@ -1,0 +1,49 @@
+From 1ee1f2e9d78fb3c8da21618c8fef1b4129f200f3 Mon Sep 17 00:00:00 2001
+From: Esme Povirk <esme@codeweavers.com>
+Date: Wed, 28 Feb 2024 16:40:50 +0000
+Subject: [PATCH] gdiplus: Fix crash in GdipAddPathString.
+
+Apparently, 1454ffe7ddf01226aacec07836d4afa62fecd3fa introduced
+the assumption that the font passed to gdip_format_string is
+non-NULL, and GdipAddPathString wasn't passing it in.
+---
+ dlls/gdiplus/graphicspath.c | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/dlls/gdiplus/graphicspath.c b/dlls/gdiplus/graphicspath.c
+index 54d9f252c2f..23a9be25055 100644
+--- a/dlls/gdiplus/graphicspath.c
++++ b/dlls/gdiplus/graphicspath.c
+@@ -1141,7 +1141,6 @@ GpStatus WINGDIPAPI GdipAddPathString(GpPath* path, GDIPCONST WCHAR* string, INT
+     }
+ 
+     get_log_fontW(font, graphics, &lfw);
+-    GdipDeleteFont(font);
+     GdipDeleteGraphics(graphics);
+ 
+     hfont = CreateFontIndirectW(&lfw);
+@@ -1150,6 +1149,7 @@ GpStatus WINGDIPAPI GdipAddPathString(GpPath* path, GDIPCONST WCHAR* string, INT
+         WARN("Failed to create font\n");
+         DeleteDC(dc);
+         GdipDeletePath(backup);
++        GdipDeleteFont(font);
+         return GenericError;
+     }
+ 
+@@ -1161,11 +1161,12 @@ GpStatus WINGDIPAPI GdipAddPathString(GpPath* path, GDIPCONST WCHAR* string, INT
+     args.maxY = 0;
+     args.scale = emSize / native_height;
+     args.ascent = textmetric.tmAscent * args.scale;
+-    status = gdip_format_string(graphics, dc, string, length, NULL, &scaled_layout_rect,
++    status = gdip_format_string(graphics, dc, string, length, font, &scaled_layout_rect,
+                                 format, TRUE, format_string_callback, &args);
+ 
+     DeleteDC(dc);
+     DeleteObject(hfont);
++    GdipDeleteFont(font);
+ 
+     if (status != Ok) /* free backup */
+     {
+-- 
+2.43.2
+

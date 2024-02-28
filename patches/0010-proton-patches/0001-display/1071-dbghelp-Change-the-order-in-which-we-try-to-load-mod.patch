@@ -1,0 +1,93 @@
+From 401dd10fe3d1a13cc7e0b96d31dc9cb7c8a7ffb0 Mon Sep 17 00:00:00 2001
+From: Eric Pouech <epouech@codeweavers.com>
+Date: Mon, 18 Dec 2023 11:15:23 +0100
+Subject: [PATCH 1071/1306] dbghelp: Change the order in which we try to load
+ modules.
+
+Change from:
+	dll.so > PE image > ELF/Mach-O image
+into
+ 	PE image > dll.so > ELF/Mach-O image
+and only resychronizing ELF/Mach-O modules after PE image loading failed.
+This reduces quite a lot loading time for PE images (6/7ms => 1/2ms, local
+values, YMMV).
+
+CW-Bug-Id: https://www.codeweavers.com/support/bugs/browse/?cmd=bug_edit;bug_id=23138
+
+(cherry picked from commit a347b5b62c5ecca96d5e649975ae7024ef2db21b)
+---
+ dlls/dbghelp/module.c | 47 ++++++++++++++++++++++++-------------------
+ 1 file changed, 26 insertions(+), 21 deletions(-)
+
+diff --git a/dlls/dbghelp/module.c b/dlls/dbghelp/module.c
+index f21733c7be9..644e92e9dc3 100644
+--- a/dlls/dbghelp/module.c
++++ b/dlls/dbghelp/module.c
+@@ -956,10 +956,12 @@ DWORD64 WINAPI  SymLoadModuleExW(HANDLE hProcess, HANDLE hFile, PCWSTR wImageNam
+             }
+         }
+ 
+-    pcs->loader->synchronize_module_list(pcs);
+-
+     /* this is a Wine extension to the API just to redo the synchronisation */
+-    if (!wImageName && !hFile) return 0;
++    if (!wImageName && !hFile)
++    {
++        pcs->loader->synchronize_module_list(pcs);
++        return 0;
++    }
+ 
+     if (Flags & SLMFLAG_VIRTUAL)
+     {
+@@ -968,27 +970,30 @@ DWORD64 WINAPI  SymLoadModuleExW(HANDLE hProcess, HANDLE hFile, PCWSTR wImageNam
+         if (!module) return 0;
+         module->module.SymType = SymVirtual;
+     }
+-    /* check if it's a builtin PE module with a containing ELF module */
+-    else if (wImageName && module_is_container_loaded(pcs, wImageName, BaseOfDll))
+-    {
+-        /* force the loading of DLL as builtin */
+-        module = pe_load_builtin_module(pcs, wImageName, BaseOfDll, SizeOfDll);
+-    }
+-    if (!module)
++    else
+     {
+-        /* otherwise, try a regular PE module */
+-        if (!(module = pe_load_native_module(pcs, wImageName, hFile, BaseOfDll, SizeOfDll)) &&
+-            wImageName)
++        /* otherwise, try a regular PE image */
++        module = pe_load_native_module(pcs, wImageName, hFile, BaseOfDll, SizeOfDll);
++        if (!module && wImageName)
+         {
+-            /* and finally an ELF or Mach-O module */
+-            module = pcs->loader->load_module(pcs, wImageName, BaseOfDll);
++            /* It could be either a dll.so file (for which we need the corresponding
++             * system module) or a system module.
++             * In both cases, ensure system module list is up-to-date.
++             */
++            pcs->loader->synchronize_module_list(pcs);
++            /* try a dll.so... */
++            if (module_is_container_loaded(pcs, wImageName, BaseOfDll))
++                module = pe_load_builtin_module(pcs, wImageName, BaseOfDll, SizeOfDll);
++            /* at last, try ELF or Mach-O module */
++            if (!module)
++                module = pcs->loader->load_module(pcs, wImageName, BaseOfDll);
++        }
++        if (!module)
++        {
++            WARN("Couldn't locate %s\n", debugstr_w(wImageName));
++            SetLastError(ERROR_NO_MORE_FILES);
++            return 0;
+         }
+-    }
+-    if (!module)
+-    {
+-        WARN("Couldn't locate %s\n", debugstr_w(wImageName));
+-        SetLastError(ERROR_NO_MORE_FILES);
+-        return 0;
+     }
+     /* by default module_new fills module.ModuleName from a derivation
+      * of LoadedImageName. Overwrite it, if we have better information
+-- 
+2.43.2
+

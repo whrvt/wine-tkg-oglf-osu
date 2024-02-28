@@ -1,0 +1,161 @@
+From a7467b6cb52c347284f21c68adc6fd743f77e4a5 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?R=C3=A9mi=20Bernon?= <rbernon@codeweavers.com>
+Date: Mon, 27 Feb 2023 23:01:03 +0100
+Subject: [PATCH 0328/1306] user32: Move GetTouchInputInfo to win32u
+ NtUserGetTouchInputInfo.
+
+CW-Bug-Id: #21796
+---
+ dlls/user32/input.c          | 10 ----------
+ dlls/user32/user32.spec      |  2 +-
+ dlls/win32u/input.c          | 10 ++++++++++
+ dlls/win32u/main.c           |  5 +++++
+ dlls/win32u/ntuser_private.h |  8 ++++++++
+ dlls/win32u/win32u.spec      |  2 +-
+ dlls/wow64win/user.c         | 10 ++++++++++
+ include/ntuser.h             |  1 +
+ 8 files changed, 36 insertions(+), 12 deletions(-)
+
+diff --git a/dlls/user32/input.c b/dlls/user32/input.c
+index b295c4c4dff..f91b65a5f56 100644
+--- a/dlls/user32/input.c
++++ b/dlls/user32/input.c
+@@ -701,16 +701,6 @@ BOOL WINAPI CloseTouchInputHandle( HTOUCHINPUT handle )
+     return TRUE;
+ }
+ 
+-/*****************************************************************************
+- * GetTouchInputInfo (USER32.@)
+- */
+-BOOL WINAPI GetTouchInputInfo( HTOUCHINPUT handle, UINT count, TOUCHINPUT *ptr, int size )
+-{
+-    TRACE( "handle %p, count %u, ptr %p, size %u.\n", handle, count, ptr, size );
+-    *ptr = *(TOUCHINPUT *)handle;
+-    return TRUE;
+-}
+-
+ /*****************************************************************************
+  * RegisterTouchWindow (USER32.@)
+  */
+diff --git a/dlls/user32/user32.spec b/dlls/user32/user32.spec
+index e8282c6b5a6..e8d94f86af6 100644
+--- a/dlls/user32/user32.spec
++++ b/dlls/user32/user32.spec
+@@ -398,7 +398,7 @@
+ @ stdcall GetThreadDpiHostingBehavior()
+ @ stdcall GetTitleBarInfo(long ptr) NtUserGetTitleBarInfo
+ @ stdcall GetTopWindow(long)
+-@ stdcall GetTouchInputInfo(long long ptr long)
++@ stdcall GetTouchInputInfo(long long ptr long) NtUserGetTouchInputInfo
+ @ stdcall GetUpdateRect(long ptr long) NtUserGetUpdateRect
+ @ stdcall GetUpdateRgn(long long long) NtUserGetUpdateRgn
+ @ stdcall GetUpdatedClipboardFormats(ptr long ptr) NtUserGetUpdatedClipboardFormats
+diff --git a/dlls/win32u/input.c b/dlls/win32u/input.c
+index 19388f7d9b5..1107e12e8c6 100644
+--- a/dlls/win32u/input.c
++++ b/dlls/win32u/input.c
+@@ -2729,3 +2729,13 @@ BOOL WINAPI NtUserClipCursor( const RECT *rect )
+ 
+     return ret;
+ }
++
++/*****************************************************************************
++ * NtUserGetTouchInputInfo (WIN32U.@)
++ */
++BOOL WINAPI NtUserGetTouchInputInfo( HTOUCHINPUT handle, UINT count, TOUCHINPUT *ptr, int size )
++{
++    TRACE( "handle %p, count %u, ptr %p, size %u.\n", handle, count, ptr, size );
++    *ptr = *(TOUCHINPUT *)handle;
++    return TRUE;
++}
+diff --git a/dlls/win32u/main.c b/dlls/win32u/main.c
+index 1808c59d030..ea3578407a1 100644
+--- a/dlls/win32u/main.c
++++ b/dlls/win32u/main.c
+@@ -1559,6 +1559,11 @@ BOOL SYSCALL_API NtUserGetTitleBarInfo( HWND hwnd, TITLEBARINFO *info )
+     __ASM_SYSCALL_FUNC( __id_NtUserGetTitleBarInfo );
+ }
+ 
++BOOL SYSCALL_API NtUserGetTouchInputInfo( HTOUCHINPUT handle, UINT count, TOUCHINPUT *ptr, int size )
++{
++    __ASM_SYSCALL_FUNC( __id_NtUserGetTouchInputInfo );
++}
++
+ BOOL SYSCALL_API NtUserGetUpdateRect( HWND hwnd, RECT *rect, BOOL erase )
+ {
+     __ASM_SYSCALL_FUNC( __id_NtUserGetUpdateRect );
+diff --git a/dlls/win32u/ntuser_private.h b/dlls/win32u/ntuser_private.h
+index 782172377c9..fa93498e32a 100644
+--- a/dlls/win32u/ntuser_private.h
++++ b/dlls/win32u/ntuser_private.h
+@@ -116,6 +116,13 @@ static inline BOOL is_broadcast( HWND hwnd )
+     return hwnd == HWND_BROADCAST || hwnd == HWND_TOPMOST;
+ }
+ 
++struct touchinput_thread_data
++{
++    BYTE       index;            /* history index */
++    TOUCHINPUT current[8];       /* current touch state */
++    TOUCHINPUT history[128][8];  /* touches history buffer */
++};
++
+ /* this is the structure stored in TEB->Win32ClientInfo */
+ /* no attempt is made to keep the layout compatible with the Windows one */
+ struct user_thread_info
+@@ -136,6 +143,7 @@ struct user_thread_info
+     HKL                           kbd_layout;             /* Current keyboard layout */
+     UINT                          kbd_layout_id;          /* Current keyboard layout ID */
+     struct rawinput_thread_data  *rawinput;               /* RawInput thread local data / buffer */
++    struct touchinput_thread_data *touchinput;            /* touch input thread local buffer */
+     UINT                          spy_indent;             /* Current spy indent */
+     BOOL                          clipping_cursor;        /* thread is currently clipping */
+     DWORD                         clipping_reset;         /* time when clipping was last reset */
+diff --git a/dlls/win32u/win32u.spec b/dlls/win32u/win32u.spec
+index a5460c8b117..e5586fd67a6 100644
+--- a/dlls/win32u/win32u.spec
++++ b/dlls/win32u/win32u.spec
+@@ -999,7 +999,7 @@
+ @ stub NtUserGetThreadState
+ @ stdcall -syscall NtUserGetTitleBarInfo(long ptr)
+ @ stub NtUserGetTopLevelWindow
+-@ stub NtUserGetTouchInputInfo
++@ stdcall -syscall NtUserGetTouchInputInfo(ptr long ptr long)
+ @ stub NtUserGetTouchValidationStatus
+ @ stub NtUserGetUniformSpaceMapping
+ @ stdcall -syscall NtUserGetUpdateRect(long ptr long)
+diff --git a/dlls/wow64win/user.c b/dlls/wow64win/user.c
+index 36a28f7435a..a1ff594f5d3 100644
+--- a/dlls/wow64win/user.c
++++ b/dlls/wow64win/user.c
+@@ -3058,6 +3058,16 @@ NTSTATUS WINAPI wow64_NtUserGetTitleBarInfo( UINT *args )
+     return NtUserGetTitleBarInfo( hwnd, info );
+ }
+ 
++NTSTATUS WINAPI wow64_NtUserGetTouchInputInfo( UINT *args )
++{
++    HTOUCHINPUT handle = get_handle( &args );
++    UINT count = get_ulong( &args );
++    TOUCHINPUT *ptr = get_ptr( &args );
++    int size = get_ulong( &args );
++
++    return NtUserGetTouchInputInfo( handle, count, ptr, size );
++}
++
+ NTSTATUS WINAPI wow64_NtUserGetUpdateRect( UINT *args )
+ {
+     HWND hwnd = get_handle( &args );
+diff --git a/include/ntuser.h b/include/ntuser.h
+index 405a74c0361..738fe055ff7 100644
+--- a/include/ntuser.h
++++ b/include/ntuser.h
+@@ -671,6 +671,7 @@ W32KAPI ULONG   WINAPI NtUserGetSystemDpiForProcess( HANDLE process );
+ W32KAPI HMENU   WINAPI NtUserGetSystemMenu( HWND hwnd, BOOL revert );
+ W32KAPI HDESK   WINAPI NtUserGetThreadDesktop( DWORD thread );
+ W32KAPI BOOL    WINAPI NtUserGetTitleBarInfo( HWND hwnd, TITLEBARINFO *info );
++W32KAPI BOOL    WINAPI NtUserGetTouchInputInfo( HTOUCHINPUT handle, UINT count, TOUCHINPUT *ptr, int size );
+ W32KAPI INT     WINAPI NtUserGetUpdateRgn( HWND hwnd, HRGN hrgn, BOOL erase );
+ W32KAPI BOOL    WINAPI NtUserGetUpdatedClipboardFormats( UINT *formats, UINT size, UINT *out_size );
+ W32KAPI BOOL    WINAPI NtUserGetUpdateRect( HWND hwnd, RECT *rect, BOOL erase );
+-- 
+2.43.2
+

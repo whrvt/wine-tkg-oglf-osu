@@ -1,0 +1,32 @@
+From bb3504a522e524f53c46d5306d7a2340e3dc209f Mon Sep 17 00:00:00 2001
+From: whrvt <william@horvath.blog>
+Date: Wed, 17 Jan 2024 04:45:20 -0800
+Subject: [PATCH 04/41] Revert "server: Use the capture window as cursor window
+ if it is set."
+
+This reverts commit c3dcf1e2697b2cdf88dffdeb57feb0d5c7ff06cb.
+
+ 100.0% server/
+diff --git a/server/queue.c b/server/queue.c
+index d3ca1172d91..036a1a91908 100644
+--- a/server/queue.c
++++ b/server/queue.c
+@@ -454,6 +454,7 @@ static int update_desktop_cursor_window( struct desktop *desktop, user_handle_t
+ 
+ static int update_desktop_cursor_pos( struct desktop *desktop, user_handle_t win, int x, int y )
+ {
++    struct thread_input *input;
+     int updated;
+ 
+     x = max( min( x, desktop->cursor.clip.right - 1 ), desktop->cursor.clip.left );
+@@ -463,6 +464,7 @@ static int update_desktop_cursor_pos( struct desktop *desktop, user_handle_t win
+     desktop->cursor.y = y;
+     desktop->cursor.last_change = get_tick_count();
+ 
++    if (!win && (input = desktop->foreground_input)) win = input->capture;
+     if (!win || !is_window_visible( win ) || is_window_transparent( win ))
+         win = shallow_window_from_point( desktop, x, y );
+     if (update_desktop_cursor_window( desktop, win )) updated = 1;
+-- 
+2.43.0
+

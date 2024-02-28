@@ -1,0 +1,70 @@
+From fd719ab4dd484a89c58bae70265732e7530b5861 Mon Sep 17 00:00:00 2001
+From: Paul Gofman <pgofman@codeweavers.com>
+Date: Fri, 17 Feb 2023 16:46:24 -0600
+Subject: [PATCH 0204/1306] winex11.drv: Sync parent's GL drawable when child
+ window is destroyed.
+
+CW-Bug-Id: #21769
+---
+ dlls/winex11.drv/opengl.c | 12 ++++++++++--
+ dlls/winex11.drv/window.c |  3 +++
+ 2 files changed, 13 insertions(+), 2 deletions(-)
+
+diff --git a/dlls/winex11.drv/opengl.c b/dlls/winex11.drv/opengl.c
+index 8d29025401d..f049668dfa5 100644
+--- a/dlls/winex11.drv/opengl.c
++++ b/dlls/winex11.drv/opengl.c
+@@ -1327,6 +1327,11 @@ static enum dc_gl_layered_type get_gl_layered_type( HWND hwnd )
+     return ret;
+ }
+ 
++static BOOL drawable_needs_clipping( HWND hwnd, BOOL known_child )
++{
++    if (known_child) return TRUE;
++    return NtUserGetWindowRelative( hwnd, GW_CHILD ) || NtUserGetAncestor( hwnd, GA_PARENT ) != NtUserGetDesktopWindow();
++}
+ 
+ /***********************************************************************
+  *              create_gl_drawable
+@@ -1378,8 +1383,7 @@ static struct gl_drawable *create_gl_drawable( HWND hwnd, const struct wgl_pixel
+         }
+         TRACE( "%p created pixmap drawable %lx for layered window, type %u.\n", hwnd, gl->drawable, gl->layered_type );
+     }
+-    else if (!known_child && !NtUserGetWindowRelative( hwnd, GW_CHILD ) &&
+-             NtUserGetAncestor( hwnd, GA_PARENT ) == NtUserGetDesktopWindow())  /* childless top-level window */
++    else if (!drawable_needs_clipping( hwnd, known_child ))  /* childless top-level window */
+     {
+         gl->type = DC_GL_WINDOW;
+         gl->colormap = XCreateColormap( gdi_display, get_dummy_parent(), visual->visual,
+@@ -1526,7 +1530,11 @@ void sync_gl_drawable( HWND hwnd, BOOL known_child )
+     if (!(old = get_gl_drawable( hwnd, 0 ))) return;
+ 
+     new_layered_type = get_gl_layered_type( hwnd );
++
++    known_child = drawable_needs_clipping( hwnd, known_child );
++
+     if (old->type == DC_GL_PIXMAP_WIN || (known_child && old->type == DC_GL_WINDOW)
++        || (!known_child && old->type != DC_GL_WINDOW)
+         || old->layered_type != new_layered_type)
+     {
+         if ((new = create_gl_drawable( hwnd, old->format, known_child, old->mutable_pf )))
+diff --git a/dlls/winex11.drv/window.c b/dlls/winex11.drv/window.c
+index 0df0c91aca9..1d62187b912 100644
+--- a/dlls/winex11.drv/window.c
++++ b/dlls/winex11.drv/window.c
+@@ -2033,6 +2033,12 @@ void X11DRV_DestroyWindow( HWND hwnd )
+     struct x11drv_thread_data *thread_data = x11drv_thread_data();
+     struct x11drv_win_data *data;
+     HWND parent = NtUserGetAncestor( hwnd, GA_PARENT );
++    
++    if (!NtUserGetWindowRelative( parent, GW_CHILD ) &&
++        NtUserGetAncestor( parent, GA_PARENT ) == NtUserGetDesktopWindow())
++    {
++        sync_gl_drawable( parent, FALSE );
++    }
+ 
+     if (!(data = get_win_data( hwnd ))) return;
+ 
+-- 
+2.43.2
+

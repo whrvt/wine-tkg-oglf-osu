@@ -33,7 +33,7 @@ index 11111111111..11111111111 100644
 @@ -482,7 +482,7 @@
  @ stdcall IsRectEmpty(ptr)
  # @ stub IsServerSideWindow
- @ stdcall IsTouchWindow(long ptr)
+ @ stdcall IsTouchWindow(long ptr) NtUserIsTouchWindow
 -@ stdcall IsValidDpiAwarenessContext(long)
 +@ stdcall IsValidDpiAwarenessContext(ptr)
  @ stdcall IsWinEventHookInstalled(long)

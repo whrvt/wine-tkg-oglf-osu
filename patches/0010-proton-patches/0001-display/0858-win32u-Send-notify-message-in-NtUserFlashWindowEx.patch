@@ -1,0 +1,27 @@
+From 9134a430a5fdcecc11aa4b3a61f026f02ae97041 Mon Sep 17 00:00:00 2001
+From: Paul Gofman <pgofman@codeweavers.com>
+Date: Sat, 12 Nov 2022 14:03:56 -0600
+Subject: [PATCH 0858/1306] win32u: Send notify message in
+ NtUserFlashWindowEx().
+
+CW-Bug-Id: #21562
+---
+ dlls/win32u/window.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/dlls/win32u/window.c b/dlls/win32u/window.c
+index e563076171e..d3ce35ebb86 100644
+--- a/dlls/win32u/window.c
++++ b/dlls/win32u/window.c
+@@ -4585,7 +4585,7 @@ BOOL WINAPI NtUserFlashWindowEx( FLASHWINFO *info )
+         release_win_ptr( win );
+ 
+         if (!info->dwFlags || info->dwFlags & FLASHW_CAPTION)
+-            send_message( hwnd, WM_NCACTIVATE, wparam, 0 );
++            send_notify_message( hwnd, WM_NCACTIVATE, wparam, 0, 0 );
+ 
+         user_driver->pFlashWindowEx( info );
+         return wparam;
+-- 
+2.43.2
+

@@ -1,0 +1,136 @@
+From 36597ee89ac37aa234bcd7c8ee285b3d41f3472a Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?R=C3=A9mi=20Bernon?= <rbernon@codeweavers.com>
+Date: Thu, 30 Nov 2023 14:56:57 +0100
+Subject: [PATCH 0181/1306] winex11: Introduce a new destroy_client_window
+ helper.
+
+---
+ dlls/winex11.drv/opengl.c |  4 +++-
+ dlls/winex11.drv/vulkan.c |  4 +---
+ dlls/winex11.drv/window.c | 28 ++++++++++++++++++++++++----
+ dlls/winex11.drv/x11drv.h |  1 +
+ 4 files changed, 29 insertions(+), 8 deletions(-)
+
+diff --git a/dlls/winex11.drv/opengl.c b/dlls/winex11.drv/opengl.c
+index 329bca11aad..4a02f829c31 100644
+--- a/dlls/winex11.drv/opengl.c
++++ b/dlls/winex11.drv/opengl.c
+@@ -222,6 +222,7 @@ struct gl_drawable
+ {
+     LONG                           ref;          /* reference count */
+     enum dc_gl_type                type;         /* type of GL surface */
++    HWND                           hwnd;
+     GLXDrawable                    drawable;     /* drawable for rendering with GL */
+     Window                         window;       /* window if drawable is a GLXWindow */
+     Colormap                       colormap;     /* colormap for the client window */
+@@ -1159,7 +1160,7 @@ static void release_gl_drawable( struct gl_drawable *gl )
+     case DC_GL_CHILD_WIN:
+         TRACE( "destroying %lx drawable %lx\n", gl->window, gl->drawable );
+         pglXDestroyWindow( gdi_display, gl->drawable );
+-        XDestroyWindow( gdi_display, gl->window );
++        destroy_client_window( gl->hwnd, gl->window );
+         XFreeColormap( gdi_display, gl->colormap );
+         break;
+     case DC_GL_PIXMAP_WIN:
+@@ -1329,6 +1330,7 @@ static struct gl_drawable *create_gl_drawable( HWND hwnd, const struct wgl_pixel
+     gl->refresh_swap_interval = TRUE;
+     gl->format = format;
+     gl->ref = 1;
++    gl->hwnd = hwnd;
+     gl->mutable_pf = mutable_pf;
+ 
+     if (!known_child && !NtUserGetWindowRelative( hwnd, GW_CHILD ) &&
+diff --git a/dlls/winex11.drv/vulkan.c b/dlls/winex11.drv/vulkan.c
+index 7366759e76c..0c888da622b 100644
+--- a/dlls/winex11.drv/vulkan.c
++++ b/dlls/winex11.drv/vulkan.c
+@@ -218,9 +218,7 @@ static void wine_vk_surface_release(struct wine_vk_surface *surface)
+         pthread_mutex_unlock(&vulkan_mutex);
+     }
+ 
+-    if (surface->window)
+-        XDestroyWindow(gdi_display, surface->window);
+-
++    destroy_client_window( surface->hwnd, surface->window );
+     free(surface);
+ }
+ 
+diff --git a/dlls/winex11.drv/window.c b/dlls/winex11.drv/window.c
+index 60e76f506d8..e07cebcade6 100644
+--- a/dlls/winex11.drv/window.c
++++ b/dlls/winex11.drv/window.c
+@@ -1691,7 +1691,7 @@ Window get_dummy_parent(void)
+ /**********************************************************************
+  *		detach_client_window
+  */
+-static void detach_client_window( struct x11drv_win_data *data, Window client_window )
++static void detach_client_window( struct x11drv_win_data *data, Window client_window, BOOL reparent )
+ {
+     if (data->client_window != client_window || !client_window) return;
+     data->client_window = 0;
+@@ -1702,11 +1702,31 @@ static void detach_client_window( struct x11drv_win_data *data, Window client_wi
+     XFlush( data->display ); /* make sure XSelectInput is disabled for client_window after this point */
+     XDeleteContext( data->display, client_window, winContext );
+ 
+-    XReparentWindow( gdi_display, client_window, get_dummy_parent(), 0, 0 );
++    if (reparent) XReparentWindow( gdi_display, client_window, get_dummy_parent(), 0, 0 );
+     TRACE( "%p/%lx detached client window %lx\n", data->hwnd, data->whole_window, client_window );
+ }
+ 
+ 
++/**********************************************************************
++ *      destroy_client_window
++ */
++void destroy_client_window( HWND hwnd, Window client_window )
++{
++    struct x11drv_win_data *data;
++
++    if (!client_window) return;
++
++    if ((data = get_win_data( hwnd )))
++    {
++        detach_client_window( data, client_window, FALSE );
++        release_win_data( data );
++    }
++
++    XDestroyWindow( gdi_display, client_window );
++    TRACE( "%p destroyed client window %lx\n", hwnd, client_window );
++}
++
++
+ /**********************************************************************
+  *		create_dummy_client_window
+  */
+@@ -1746,7 +1766,7 @@ Window create_client_window( HWND hwnd, const XVisualInfo *visual, Colormap colo
+         data->window_rect = data->whole_rect = data->client_rect;
+     }
+ 
+-    detach_client_window( data, data->client_window );
++    detach_client_window( data, data->client_window, TRUE );
+ 
+     attr.colormap = colormap;
+     attr.bit_gravity = NorthWestGravity;
+@@ -1879,7 +1899,7 @@ static void destroy_whole_window( struct x11drv_win_data *data, BOOL already_des
+     }
+     else
+     {
+-        if (!already_destroyed) detach_client_window( data, data->client_window );
++        if (!already_destroyed) detach_client_window( data, data->client_window, TRUE );
+         XDeleteContext( data->display, data->whole_window, winContext );
+         if (!already_destroyed)
+         {
+diff --git a/dlls/winex11.drv/x11drv.h b/dlls/winex11.drv/x11drv.h
+index d446a1c6e51..a3878088daa 100644
+--- a/dlls/winex11.drv/x11drv.h
++++ b/dlls/winex11.drv/x11drv.h
+@@ -667,6 +667,7 @@ extern void update_net_wm_states( struct x11drv_win_data *data );
+ extern void make_window_embedded( struct x11drv_win_data *data );
+ extern Window create_dummy_client_window(void);
+ extern Window create_client_window( HWND hwnd, const XVisualInfo *visual, Colormap colormap );
++extern void destroy_client_window( HWND hwnd, Window client_window );
+ extern void set_window_visual( struct x11drv_win_data *data, const XVisualInfo *vis, BOOL use_alpha );
+ extern void change_systray_owner( Display *display, Window systray_window );
+ extern HWND create_foreign_window( Display *display, Window window );
+-- 
+2.43.2
+

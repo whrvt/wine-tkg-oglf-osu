@@ -62,15 +62,17 @@ index 11111111111..11111111111 100644
  
  /**********************************************************************
   *		set_window_visual
-@@ -1884,9 +1914,11 @@ void set_window_visual( struct x11drv_win_data *data, const XVisualInfo *vis, BO
+@@ -1975,11 +1975,13 @@ void set_window_visual( struct x11drv_win_data *data, const XVisualInfo *vis, BO
  
      if (data->vis.visualid == vis->visualid) return;
-     data->client_window = 0;
+     client_window = data->client_window;
 +    Window old_whole = data->whole_window;
-     destroy_whole_window( data, client_window != 0 /* don't destroy whole_window until reparented */ );
+     /* detach the client before re-creating whole_window */
+     detach_client_window( data, client_window, TRUE );
+     destroy_whole_window( data, FALSE );
      data->vis = *vis;
      create_whole_window( data );
 +    append_from_hints( old_whole, data );
-     if (!client_window) return;
-     /* move the client to the new parent */
-     XReparentWindow( gdi_display, client_window, data->whole_window,
+     /* attach the client back to the re-created whole_window */
+     attach_client_window( data, client_window );
+ }

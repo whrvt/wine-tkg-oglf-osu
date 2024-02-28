@@ -1,0 +1,25 @@
+From ff1022153857ddabd90ecd7ee932022e21fdd5d2 Mon Sep 17 00:00:00 2001
+From: whrvt <william@horvath.blog>
+Date: Thu, 18 Jan 2024 21:13:52 -0800
+Subject: [PATCH 2/2] Revert "wineboot: Remove a noisy FIXME."
+
+This reverts commit ef9debff6052cf502e290fe128c0c10f98551c6a.
+---
+ programs/wineboot/wineboot.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/programs/wineboot/wineboot.c b/programs/wineboot/wineboot.c
+index d996aa83f95..58fa6939a9a 100644
+--- a/programs/wineboot/wineboot.c
++++ b/programs/wineboot/wineboot.c
+@@ -350,6 +350,7 @@ static void initialize_xstate_features(struct _KUSER_SHARED_DATA *data)
+ 
+ static UINT64 read_tsc_frequency(void)
+ {
++    FIXME( "TSC frequency calibration not implemented\n" );
+     return 0;
+ }
+ 
+-- 
+2.43.0
+

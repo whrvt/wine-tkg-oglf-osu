@@ -1,0 +1,28 @@
+From bbf987d5c0b8159ec24b6c6c13a95b6fcb9b024b Mon Sep 17 00:00:00 2001
+From: whrvt <william@horvath.blog>
+Date: Wed, 28 Feb 2024 00:50:10 -0800
+Subject: [PATCH 1/5] Revert "winebus.sys: Prefer hidraw if it is the only
+ backend enabled."
+
+This reverts commit 9a0e244d518f61101370ef8238b7afd4e973ad5a.
+---
+ dlls/winebus.sys/main.c | 3 ---
+ 1 file changed, 3 deletions(-)
+
+diff --git a/dlls/winebus.sys/main.c b/dlls/winebus.sys/main.c
+index fa0a9a998d7..2476e3a9cdb 100644
+--- a/dlls/winebus.sys/main.c
++++ b/dlls/winebus.sys/main.c
+@@ -412,9 +412,6 @@ static BOOL is_hidraw_enabled(WORD vid, WORD pid)
+ 
+     if (check_bus_option(L"DisableHidraw", FALSE)) return FALSE;
+ 
+-    if (!check_bus_option(L"Enable SDL", 1) && check_bus_option(L"DisableInput", 0))
+-        prefer_hidraw = TRUE;
+-
+     if (is_dualshock4_gamepad(vid, pid)) prefer_hidraw = TRUE;
+     if (is_dualsense_gamepad(vid, pid)) prefer_hidraw = TRUE;
+ 
+-- 
+2.43.2
+

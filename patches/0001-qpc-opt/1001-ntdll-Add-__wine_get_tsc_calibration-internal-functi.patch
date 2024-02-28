@@ -254,13 +254,13 @@ index 11111111111..11111111111 100644
 --- a/dlls/ntdll/unix/unix_private.h
 +++ b/dlls/ntdll/unix/unix_private.h
 @@ -327,6 +327,7 @@ extern void add_completion( HANDLE handle, ULONG_PTR value, NTSTATUS status, ULO
- extern void set_async_direct_result( HANDLE *async_handle, NTSTATUS status, ULONG_PTR information, BOOL mark_pending ) DECLSPEC_HIDDEN;
+ extern void set_async_direct_result( HANDLE *async_handle, NTSTATUS status, ULONG_PTR information, BOOL mark_pending );
  
- extern NTSTATUS unixcall_wine_dbg_write( void *args ) DECLSPEC_HIDDEN;
-+extern NTSTATUS unixcall_wine_get_tsc_calibration( void *args ) DECLSPEC_HIDDEN;
- extern NTSTATUS unixcall_wine_needs_override_large_address_aware( void *args ) DECLSPEC_HIDDEN;
- extern NTSTATUS unixcall_wine_server_call( void *args ) DECLSPEC_HIDDEN;
- extern NTSTATUS unixcall_wine_server_fd_to_handle( void *args ) DECLSPEC_HIDDEN;
+ extern NTSTATUS unixcall_wine_dbg_write( void *args );
++extern NTSTATUS unixcall_wine_get_tsc_calibration( void *args );
+ extern NTSTATUS unixcall_wine_needs_override_large_address_aware( void *args );
+ extern NTSTATUS unixcall_wine_server_call( void *args );
+ extern NTSTATUS unixcall_wine_server_fd_to_handle( void *args );
 diff --git a/dlls/ntdll/unixlib.h b/dlls/ntdll/unixlib.h
 index 11111111111..11111111111 100644
 --- a/dlls/ntdll/unixlib.h
@@ -293,8 +293,8 @@ index 11111111111..11111111111 100644
 @@ -5180,6 +5180,7 @@ static inline PLIST_ENTRY RemoveTailList(PLIST_ENTRY le)
  /* Wine internal functions */
  
- extern NTSTATUS WINAPI __wine_unix_spawnvp( char * const argv[], int wait );
-+extern NTSTATUS __cdecl __wine_get_tsc_calibration( ULONGLONG *frequency, LONGLONG *offset );
+ NTSYSAPI NTSTATUS WINAPI __wine_unix_spawnvp( char * const argv[], int wait );
++NTSYSAPI NTSTATUS __cdecl __wine_get_tsc_calibration( ULONGLONG *frequency, LONGLONG *offset );
  
  /* The thread information for 16-bit threads */
  /* NtCurrentTeb()->SubSystemTib points to this */

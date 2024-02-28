@@ -1,0 +1,86 @@
+From d3a0e4fc5ceff44317836a2ced0913e24c520c41 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?R=C3=A9mi=20Bernon?= <rbernon@codeweavers.com>
+Date: Mon, 26 Jun 2023 10:37:59 +0200
+Subject: [PATCH 0314/1306] win32u: Keep the clipping rectangle inside a
+ fullscreen window.
+
+CW-Bug-Id: #21707
+---
+ dlls/win32u/input.c          | 22 ++++++++++++++++++++--
+ dlls/win32u/sysparams.c      |  2 +-
+ dlls/win32u/win32u_private.h |  1 +
+ 3 files changed, 22 insertions(+), 3 deletions(-)
+
+diff --git a/dlls/win32u/input.c b/dlls/win32u/input.c
+index 0cca9791903..57037dcabb5 100644
+--- a/dlls/win32u/input.c
++++ b/dlls/win32u/input.c
+@@ -2621,13 +2621,15 @@ BOOL process_wine_clipcursor( HWND hwnd, UINT flags, BOOL reset )
+ BOOL WINAPI NtUserClipCursor( const RECT *rect )
+ {
+     volatile struct desktop_shared_memory *shared = get_desktop_shared_memory();
++    static int keep_inside_window = -1;
++    HWND foreground = NtUserGetForegroundWindow();
+     UINT dpi;
+     BOOL ret;
+-    RECT new_rect;
++    RECT new_rect, full_rect;
+ 
+     TRACE( "Clipping to %s\n", wine_dbgstr_rect(rect) );
+ 
+-    if (NtUserGetForegroundWindow() == NtUserGetDesktopWindow())
++    if (foreground == NtUserGetDesktopWindow())
+     {
+         WARN( "desktop is foreground, ignoring ClipCursor\n" );
+         rect = NULL;
+@@ -2663,6 +2665,22 @@ BOOL WINAPI NtUserClipCursor( const RECT *rect )
+             new_rect = map_dpi_rect( *rect, dpi, get_monitor_dpi( monitor ));
+             rect = &new_rect;
+         }
++
++        if (keep_inside_window == -1)
++        {
++            const char *sgi = getenv( "SteamGameId" );
++            keep_inside_window = sgi && !strcmp( sgi, "730830" ); /* Escape from Monkey Island */
++        }
++
++        /* keep the mouse clipped inside of a fullscreen foreground window */
++        if (keep_inside_window && NtUserGetWindowRect( foreground, &full_rect ) && is_window_rect_full_screen( &full_rect ))
++        {
++            full_rect.left = max( full_rect.left, min( full_rect.right - 1, rect->left ) );
++            full_rect.right = max( full_rect.left, min( full_rect.right - 1, rect->right ) );
++            full_rect.top = max( full_rect.top, min( full_rect.bottom - 1, rect->top ) );
++            full_rect.bottom = max( full_rect.top, min( full_rect.bottom - 1, rect->bottom ) );
++            rect = &full_rect;
++        }
+     }
+ 
+     SERVER_START_REQ( set_cursor )
+diff --git a/dlls/win32u/sysparams.c b/dlls/win32u/sysparams.c
+index ad6e7dce39b..cea7e2cbc73 100644
+--- a/dlls/win32u/sysparams.c
++++ b/dlls/win32u/sysparams.c
+@@ -2329,7 +2329,7 @@ RECT get_virtual_screen_rect( UINT dpi )
+     return rect;
+ }
+ 
+-static BOOL is_window_rect_full_screen( const RECT *rect )
++BOOL is_window_rect_full_screen( const RECT *rect )
+ {
+     struct monitor *monitor;
+     BOOL ret = FALSE;
+diff --git a/dlls/win32u/win32u_private.h b/dlls/win32u/win32u_private.h
+index b08c0ceb716..6b518e6023d 100644
+--- a/dlls/win32u/win32u_private.h
++++ b/dlls/win32u/win32u_private.h
+@@ -178,6 +178,7 @@ extern int get_system_metrics( int index );
+ extern UINT get_thread_dpi(void);
+ extern DPI_AWARENESS get_thread_dpi_awareness(void);
+ extern RECT get_virtual_screen_rect( UINT dpi );
++extern BOOL is_window_rect_full_screen( const RECT *rect );
+ extern BOOL is_exiting_thread( DWORD tid );
+ extern POINT map_dpi_point( POINT pt, UINT dpi_from, UINT dpi_to );
+ extern RECT map_dpi_rect( RECT rect, UINT dpi_from, UINT dpi_to );
+-- 
+2.43.2
+

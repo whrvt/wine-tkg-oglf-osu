@@ -1,0 +1,42 @@
+From aa369b8cc50e674de3b2c39c4b324506c638da82 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?R=C3=A9mi=20Bernon?= <rbernon@codeweavers.com>
+Date: Fri, 10 Mar 2023 20:51:53 +0100
+Subject: [PATCH 0304/1306] user32: Add more devnotify traces on +rawinput.
+
+CW-Bug-Id: #22037
+---
+ dlls/user32/input.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/dlls/user32/input.c b/dlls/user32/input.c
+index 8f3cd8acae7..238571361c8 100644
+--- a/dlls/user32/input.c
++++ b/dlls/user32/input.c
+@@ -31,6 +31,7 @@
+ 
+ WINE_DEFAULT_DEBUG_CHANNEL(win);
+ WINE_DECLARE_DEBUG_CHANNEL(keyboard);
++WINE_DECLARE_DEBUG_CHANNEL(rawinput);
+ 
+ /***********************************************************************
+  *           get_locale_kbd_layout
+@@ -502,6 +503,7 @@ BOOL WINAPI UnloadKeyboardLayout( HKL layout )
+ 
+ static DWORD CALLBACK devnotify_window_callbackW(HANDLE handle, DWORD flags, DEV_BROADCAST_HDR *header)
+ {
++    TRACE_(rawinput)("handle %p, flags %#lx, header %p\n", handle, flags, header);
+     SendMessageTimeoutW(handle, WM_DEVICECHANGE, flags, (LPARAM)header, SMTO_ABORTIFHUNG, 2000, NULL);
+     return 0;
+ }
+@@ -585,7 +587,7 @@ HDEVNOTIFY WINAPI RegisterDeviceNotificationW( HANDLE handle, void *filter, DWOR
+     struct device_notification_details details;
+     DEV_BROADCAST_HDR *header = filter;
+ 
+-    TRACE("handle %p, filter %p, flags %#lx\n", handle, filter, flags);
++    TRACE_(rawinput)("handle %p, filter %p, flags %#lx\n", handle, filter, flags);
+ 
+     if (flags & ~(DEVICE_NOTIFY_SERVICE_HANDLE | DEVICE_NOTIFY_ALL_INTERFACE_CLASSES))
+     {
+-- 
+2.43.2
+

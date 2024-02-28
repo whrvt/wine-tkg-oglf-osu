@@ -1,0 +1,42 @@
+From b9bb63ec5894f28b5675b39cdee1f8452cce3282 Mon Sep 17 00:00:00 2001
+From: whrvt <william@horvath.blog>
+Date: Mon, 26 Feb 2024 20:04:45 -0800
+Subject: [PATCH] Revert "winex11: Process XInput2 events with QS_INPUT
+ filter."
+
+This reverts commit b341688dbd9dfc05bd61d6b8f494867e6343b702.
+---
+ dlls/winex11.drv/event.c | 10 +++-------
+ 1 file changed, 3 insertions(+), 7 deletions(-)
+
+diff --git a/dlls/winex11.drv/event.c b/dlls/winex11.drv/event.c
+index 8b02361aaff..aafb89a4fed 100644
+--- a/dlls/winex11.drv/event.c
++++ b/dlls/winex11.drv/event.c
+@@ -233,6 +233,9 @@ static Bool filter_event( Display *display, XEvent *event, char *arg )
+     case ButtonPress:
+     case ButtonRelease:
+         return (mask & QS_MOUSEBUTTON) != 0;
++#ifdef GenericEvent
++    case GenericEvent:
++#endif
+     case MotionNotify:
+     case EnterNotify:
+     case LeaveNotify:
+@@ -247,13 +250,6 @@ static Bool filter_event( Display *display, XEvent *event, char *arg )
+     case PropertyNotify:
+     case ClientMessage:
+         return (mask & QS_POSTMESSAGE) != 0;
+-#ifdef GenericEvent
+-    case GenericEvent:
+-#ifdef HAVE_X11_EXTENSIONS_XINPUT2_H
+-        if (event->xcookie.extension == xinput2_opcode) return (mask & QS_INPUT) != 0;
+-#endif
+-        /* fallthrough */
+-#endif
+     default:
+         return (mask & QS_SENDMESSAGE) != 0;
+     }
+-- 
+2.43.2
+

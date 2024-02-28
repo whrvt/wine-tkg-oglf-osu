@@ -21,7 +21,7 @@ index 11111111111..11111111111 100644
  static Cursor create_cursor( HANDLE handle );
  
  #ifdef HAVE_X11_EXTENSIONS_XINPUT2_H
-@@ -456,11 +457,12 @@ static BOOL grab_clipping_window( const RECT *clip )
+@@ -437,7 +437,7 @@ static BOOL grab_clipping_window( const RECT *clip )
  
      TRACE( "clipping to %s win %lx\n", wine_dbgstr_rect(clip), clip_window );
  
@@ -30,11 +30,16 @@ index 11111111111..11111111111 100644
      pos = virtual_screen_to_root( clip->left, clip->top );
      XMoveResizeWindow( data->display, clip_window, pos.x, pos.y,
                         max( 1, clip->right - clip->left ), max( 1, clip->bottom - clip->top ) );
+@@ -454,7 +454,8 @@ static BOOL grab_clipping_window( const RECT *clip )
+                        max( 1, real_clip.right - real_clip.left ),
+                        max( 1, real_clip.bottom - real_clip.top ) );
      XMapWindow( data->display, clip_window );
+-
 +    clip_window_mapped = TRUE;
- 
++    
      /* if the rectangle is shrinking we may get a pointer warp */
      if (!data->clipping_cursor || clip->left > clip_rect.left || clip->top > clip_rect.top ||
+         clip->right < clip_rect.right || clip->bottom < clip_rect.bottom)
 @@ -519,7 +521,8 @@ void ungrab_clipping_window(void)
      if (!clip_window) return;
  
@@ -42,6 +47,6 @@ index 11111111111..11111111111 100644
 -    XUnmapWindow( data->display, clip_window );
 +    if (clip_window_mapped) XUnmapWindow( data->display, clip_window );
 +    clip_window_mapped = FALSE;
-     if (clipping_cursor) XUngrabPointer( data->display, CurrentTime );
-     clipping_cursor = FALSE;
-     data->clipping_cursor = FALSE;
+     if (clipping_cursor)
+     {
+         XUngrabPointer( data->display, CurrentTime );

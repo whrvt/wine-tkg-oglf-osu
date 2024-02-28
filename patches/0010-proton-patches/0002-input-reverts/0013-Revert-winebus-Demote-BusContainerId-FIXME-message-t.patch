@@ -1,0 +1,27 @@
+From 65609f3933aeec679a40f3705a2ff016bbf05f2d Mon Sep 17 00:00:00 2001
+From: whrvt <william@horvath.blog>
+Date: Wed, 28 Feb 2024 00:50:10 -0800
+Subject: [PATCH 2/5] Revert "winebus: Demote BusContainerId FIXME message to
+ WARN."
+
+This reverts commit c43d3964e35af1a786ad0e986e907792732fc9e8.
+---
+ dlls/winebus.sys/main.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/dlls/winebus.sys/main.c b/dlls/winebus.sys/main.c
+index 2476e3a9cdb..b0252b438ea 100644
+--- a/dlls/winebus.sys/main.c
++++ b/dlls/winebus.sys/main.c
+@@ -543,7 +543,7 @@ static NTSTATUS handle_IRP_MN_QUERY_ID(DEVICE_OBJECT *device, IRP *irp)
+             irp->IoStatus.Information = (ULONG_PTR)get_instance_id(device);
+             break;
+         default:
+-            WARN("Unhandled type %08x\n", type);
++            FIXME("Unhandled type %08x\n", type);
+             return status;
+     }
+ 
+-- 
+2.43.2
+

@@ -1,0 +1,29 @@
+From b161c69143ab580a0d67536980af0bfbe8a77b56 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?R=C3=A9mi=20Bernon?= <rbernon@codeweavers.com>
+Date: Wed, 5 Apr 2023 16:20:15 +0200
+Subject: [PATCH 0282/1306] winex11: Avoid updating fullscreen monitor info
+ when minimized.
+
+CW-Bug-Id: #22105
+---
+ dlls/winex11.drv/window.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/dlls/winex11.drv/window.c b/dlls/winex11.drv/window.c
+index 1dea131c85e..d1ca193fa1f 100644
+--- a/dlls/winex11.drv/window.c
++++ b/dlls/winex11.drv/window.c
+@@ -1376,7 +1376,9 @@ void update_net_wm_states( struct x11drv_win_data *data )
+         }
+     }
+     data->net_wm_state = new_state;
+-    update_net_wm_fullscreen_monitors( data );
++
++    if (!(style & WS_MINIMIZE))
++        update_net_wm_fullscreen_monitors( data );
+ 
+     XChangeProperty( data->display, data->whole_window, x11drv_atom(_NET_WM_BYPASS_COMPOSITOR), XA_CARDINAL,
+                      32, PropModeReplace, (unsigned char *)&net_wm_bypass_compositor, 1 );
+-- 
+2.43.2
+

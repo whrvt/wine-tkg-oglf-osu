@@ -1,0 +1,59 @@
+From 3275587df4928842285e449065b2b8fa508076ed Mon Sep 17 00:00:00 2001
+From: Zhiyi Zhang <zzhang@codeweavers.com>
+Date: Mon, 6 Apr 2020 15:30:40 +0800
+Subject: [PATCH 0278/1306] winex11.drv: Bypass compositor only when a window
+ is full virtual screen.
+
+Bypass compositor only when a window is full virtual screen. Otherwise, it might cause flicking on
+other monitors.
+
+Signed-off-by: Zhiyi Zhang <zzhang@codeweavers.com>
+---
+ dlls/winex11.drv/window.c | 10 +++++++++-
+ dlls/winex11.drv/x11drv.h |  2 ++
+ 2 files changed, 11 insertions(+), 1 deletion(-)
+
+diff --git a/dlls/winex11.drv/window.c b/dlls/winex11.drv/window.c
+index 95dc242fc31..f04087e90fd 100644
+--- a/dlls/winex11.drv/window.c
++++ b/dlls/winex11.drv/window.c
+@@ -388,6 +388,13 @@ static inline BOOL is_window_resizable( struct x11drv_win_data *data, DWORD styl
+     return NtUserIsWindowRectFullScreen( &data->whole_rect );
+ }
+ 
++BOOL is_window_rect_full_virtual_screen( const RECT *rect )
++{
++    RECT virtual_rect = NtUserGetVirtualScreenRect();
++    return (rect->left <= virtual_rect.left && rect->right >= virtual_rect.right &&
++            rect->top <= virtual_rect.top && rect->bottom >= virtual_rect.bottom);
++}
++
+ /***********************************************************************
+  *              get_mwm_decorations
+  */
+@@ -1172,7 +1172,8 @@ void update_net_wm_states( struct x11drv_win_data *data )
+             {
+                 data->pending_fullscreen = (new_state & (1 << i)) != 0;
+                 TRACE( "set pending_fullscreen to: %u\n", data->pending_fullscreen );
+-                net_wm_bypass_compositor = 1;
++                if (is_window_rect_full_virtual_screen( &data->whole_rect ))
++                    net_wm_bypass_compositor = 1;
+             }
+ 
+             xev.xclient.data.l[0] = (new_state & (1 << i)) ? _NET_WM_STATE_ADD : _NET_WM_STATE_REMOVE;
+diff --git a/dlls/winex11.drv/x11drv.h b/dlls/winex11.drv/x11drv.h
+index cf50feccb80..a7d836c3704 100644
+--- a/dlls/winex11.drv/x11drv.h
++++ b/dlls/winex11.drv/x11drv.h
+@@ -754,6 +754,8 @@ extern BOOL xinerama_get_fullscreen_monitors( const RECT *rect, long *indices );
+ extern void xinerama_init( unsigned int width, unsigned int height );
+ extern void init_recursive_mutex( pthread_mutex_t *mutex );
+ 
++extern BOOL is_window_rect_full_virtual_screen( const RECT *rect );
++
+ #define DEPTH_COUNT 3
+ extern const unsigned int *depths;
+ 
+-- 
+2.43.2
+

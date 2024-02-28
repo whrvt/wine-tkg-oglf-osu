@@ -1,0 +1,29 @@
+From 1eb6e96529d2758fb5c5723ad232a78a32ce4fab Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?R=C3=A9mi=20Bernon?= <rbernon@codeweavers.com>
+Date: Thu, 27 Jul 2023 09:23:05 +0200
+Subject: [PATCH 0067/1306] Revert "ntoskrnl/tests: Fix a test failure."
+
+This reverts commit 03034f2c0ef23964891d60e5995d167a113f2d3e.
+
+CW-Bug-Id: #22500
+---
+ dlls/ntoskrnl.exe/tests/driver_pnp.c | 3 +--
+ 1 file changed, 1 insertion(+), 2 deletions(-)
+
+diff --git a/dlls/ntoskrnl.exe/tests/driver_pnp.c b/dlls/ntoskrnl.exe/tests/driver_pnp.c
+index f66d56de8c7..4f75990444d 100644
+--- a/dlls/ntoskrnl.exe/tests/driver_pnp.c
++++ b/dlls/ntoskrnl.exe/tests/driver_pnp.c
+@@ -727,8 +727,7 @@ static NTSTATUS fdo_ioctl(IRP *irp, IO_STACK_LOCATION *stack, ULONG code)
+              * handles to the device are closed (and the user-space thread is
+              * currently blocked in this ioctl and won't close its handle
+              * yet.) */
+-            todo_wine_if (remove_device_count)
+-                ok(!remove_device_count, "Got %u remove events.\n", remove_device_count);
++            ok(!remove_device_count, "Got %u remove events.\n", remove_device_count);
+ 
+             return STATUS_SUCCESS;
+         }
+-- 
+2.43.2
+

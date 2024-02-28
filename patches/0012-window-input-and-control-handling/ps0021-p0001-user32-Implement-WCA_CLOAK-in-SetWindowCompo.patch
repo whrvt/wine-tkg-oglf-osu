@@ -139,18 +139,18 @@ index 11111111111..11111111111 100644
  
  #define WM_POPUPSYSTEMMENU  0x0313
  
-diff --git a/dlls/win32u/syscall.c b/dlls/win32u/syscall.c
-index 11111111111..11111111111 100644
---- a/dlls/win32u/syscall.c
-+++ b/dlls/win32u/syscall.c
-@@ -402,6 +402,7 @@ static void * const syscalls[] =
-     NtUserSetThreadDesktop,
-     NtUserSetTimer,
-     NtUserSetWinEventHook,
-+    NtUserSetWindowCompositionAttribute,
-     NtUserSetWindowLong,
-     NtUserSetWindowLongPtr,
-     NtUserSetWindowPlacement,
+# diff --git a/dlls/win32u/syscall.c b/dlls/win32u/syscall.c
+# index 11111111111..11111111111 100644
+# --- a/dlls/win32u/syscall.c
+# +++ b/dlls/win32u/syscall.c
+# @@ -402,6 +402,7 @@ static void * const syscalls[] =
+#      NtUserSetThreadDesktop,
+#      NtUserSetTimer,
+#      NtUserSetWinEventHook,
+# +    NtUserSetWindowCompositionAttribute,
+#      NtUserSetWindowLong,
+#      NtUserSetWindowLongPtr,
+#      NtUserSetWindowPlacement,
 diff --git a/dlls/win32u/win32u.spec b/dlls/win32u/win32u.spec
 index 11111111111..11111111111 100644
 --- a/dlls/win32u/win32u.spec
@@ -381,11 +381,11 @@ index 11111111111..11111111111 100644
 --- a/include/ntuser.h
 +++ b/include/ntuser.h
 @@ -481,10 +481,50 @@ enum wine_internal_message
-     WM_WINE_CLIPCURSOR,
-     WM_WINE_SETCURSOR,
      WM_WINE_UPDATEWINDOWSTATE,
-+    WM_WINE_SETWINDOWCLOAKED,
      WM_WINE_FIRST_DRIVER_MSG = 0x80001000,  /* range of messages reserved for the USER driver */
+     WM_WINE_CLIPCURSOR = 0x80001ff0, /* internal driver notification messages */
++    WM_WINE_SETWINDOWCLOAKED,
+     WM_WINE_SETCURSOR,
      WM_WINE_LAST_DRIVER_MSG = 0x80001fff
  };
  
@@ -431,14 +431,14 @@ index 11111111111..11111111111 100644
  /* internal IME message */
  #define WM_IME_INTERNAL 0x287
  #define IME_INTERNAL_ACTIVATE   0x17
-@@ -740,6 +780,7 @@ BOOL    WINAPI NtUserSetSystemMenu( HWND hwnd, HMENU menu );
- UINT_PTR WINAPI NtUserSetSystemTimer( HWND hwnd, UINT_PTR id, UINT timeout );
- BOOL    WINAPI NtUserSetThreadDesktop( HDESK handle );
- UINT_PTR WINAPI NtUserSetTimer( HWND hwnd, UINT_PTR id, UINT timeout, TIMERPROC proc, ULONG tolerance );
-+NTSTATUS WINAPI NtUserSetWindowCompositionAttribute( HWND hwnd, const struct WINCOMPATTRDATA *data );
- LONG    WINAPI NtUserSetWindowLong( HWND hwnd, INT offset, LONG newval, BOOL ansi );
- LONG_PTR WINAPI NtUserSetWindowLongPtr( HWND hwnd, INT offset, LONG_PTR newval, BOOL ansi );
- BOOL    WINAPI NtUserSetWindowPlacement( HWND hwnd, const WINDOWPLACEMENT *wpl );
+@@ -740,6 +780,7 @@ W32KAPI BOOL    WINAPI NtUserSetSystemMenu( HWND hwnd, HMENU menu );
+ W32KAPI UINT_PTR WINAPI NtUserSetSystemTimer( HWND hwnd, UINT_PTR id, UINT timeout );
+ W32KAPI BOOL    WINAPI NtUserSetThreadDesktop( HDESK handle );
+ W32KAPI UINT_PTR WINAPI NtUserSetTimer( HWND hwnd, UINT_PTR id, UINT timeout, TIMERPROC proc, ULONG tolerance );
++W32KAPI NTSTATUS WINAPI NtUserSetWindowCompositionAttribute( HWND hwnd, const struct WINCOMPATTRDATA *data );
+ W32KAPI LONG    WINAPI NtUserSetWindowLong( HWND hwnd, INT offset, LONG newval, BOOL ansi );
+ W32KAPI LONG_PTR WINAPI NtUserSetWindowLongPtr( HWND hwnd, INT offset, LONG_PTR newval, BOOL ansi );
+ W32KAPI BOOL    WINAPI NtUserSetWindowPlacement( HWND hwnd, const WINDOWPLACEMENT *wpl );
 diff --git a/include/wine/gdi_driver.h b/include/wine/gdi_driver.h
 index 11111111111..11111111111 100644
 --- a/include/wine/gdi_driver.h
@@ -494,17 +494,17 @@ index 11111111111..11111111111 100644
 --- a/server/window.c
 +++ b/server/window.c
 @@ -82,6 +82,7 @@ struct window
+     unsigned int     is_linked : 1;   /* is it linked into the parent z-order list? */
      unsigned int     is_layered : 1;  /* has layered info been set? */
      unsigned int     is_orphan : 1;   /* is window orphaned */
-     unsigned int     is_desktop : 1;  /* is it a desktop window? */
 +    unsigned int     is_cloaked : 1;  /* is the window cloaked by the app? */
      unsigned int     color_key;       /* color key for a layered window */
      unsigned int     alpha;           /* alpha value for a layered window */
      unsigned int     layered_flags;   /* flags for a layered window */
 @@ -611,6 +612,7 @@ static struct window *create_window( struct window *parent, struct window *owner
+     win->is_linked      = 0;
      win->is_layered     = 0;
      win->is_orphan      = 0;
-     win->is_desktop     = parent ? 0 : 1;
 +    win->is_cloaked     = 0;
      win->dpi_awareness  = DPI_AWARENESS_PER_MONITOR_AWARE;
      win->dpi            = 0;

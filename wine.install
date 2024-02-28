@@ -21,7 +21,6 @@ post_upgrade() {
 
 inform_patches() {
   echo "Remember to export WINEESYNC=1 to use Esync or WINEFSYNC=1 to use Fsync/Futex2"
-  echo "For best performance, WINE_DISABLE_FAST_SYNC=1 and WINEFSYNC=1 is recommended"
   echo ""
   echo "You can also hide wine version using export WINE_BLOCK_GET_VERSION=1"
   echo "This build is also bundled with openglfreak's latency reduction patch; try it with export WINE_OPENGL_LATENCY_REDUCTION=1"

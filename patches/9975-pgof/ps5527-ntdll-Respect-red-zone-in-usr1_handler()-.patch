@@ -1,0 +1,27 @@
+From 12e9fc330f64866509e68a62e3d6fe5602f8de90 Mon Sep 17 00:00:00 2001
+From: Paul Gofman <pgofman@codeweavers.com>
+Date: Mon, 4 Mar 2024 19:54:54 -0600
+Subject: [PATCH] ntdll: Respect red zone in usr1_handler() on x64.
+
+Fixes a regression introduced by
+efd3d31082645fab83c6a4994705654edafa9163.
+---
+ dlls/ntdll/unix/signal_x86_64.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/dlls/ntdll/unix/signal_x86_64.c b/dlls/ntdll/unix/signal_x86_64.c
+index fb1bca99f3d..d071120af85 100644
+--- a/dlls/ntdll/unix/signal_x86_64.c
++++ b/dlls/ntdll/unix/signal_x86_64.c
+@@ -2152,7 +2152,7 @@ static void usr1_handler( int signal, siginfo_t *siginfo, void *sigcontext )
+         ULONG64 saved_compaction = 0;
+         struct xcontext *context;
+ 
+-        context = (struct xcontext *)(((ULONG_PTR)RSP_sig(ucontext) - sizeof(*context)) & ~15);
++        context = (struct xcontext *)(((ULONG_PTR)RSP_sig(ucontext) - 128 /* red zone */ - sizeof(*context)) & ~15);
+         if ((char *)context < (char *)ntdll_get_thread_data()->kernel_stack)
+         {
+             ERR_(seh)( "kernel stack overflow.\n" );
+-- 
+GitLab
+

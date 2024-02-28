@@ -50,7 +50,7 @@ index 11111111111..11111111111 100644
          data->iconic = FALSE;
          read_net_wm_states( event->display, data );
          if ((style & WS_CAPTION) == WS_CAPTION && (data->net_wm_state & (1 << NET_WM_STATE_MAXIMIZED)))
-@@ -1398,11 +1400,23 @@ static void handle_wm_state_notify( HWND hwnd, XPropertyEvent *event, BOOL updat
+@@ -1388,11 +1388,23 @@ static void handle_wm_state_notify( HWND hwnd, XPropertyEvent *event, BOOL updat
          {
              if (style & (WS_MINIMIZE | WS_MAXIMIZE))
              {
@@ -64,7 +64,7 @@ index 11111111111..11111111111 100644
                  TRACE( "restoring win %p/%lx\n", data->hwnd, data->whole_window );
                  release_win_data( data );
                  if ((style & (WS_MINIMIZE | WS_VISIBLE)) == (WS_MINIMIZE | WS_VISIBLE))
-                     set_foreground_window( hwnd, x11drv_time_to_ticks( event->time ) );
+                     NtUserSetForegroundWindow( hwnd );
                  send_message( hwnd, WM_SYSCOMMAND, SC_RESTORE, 0 );
 +                if (keep_state && (data = get_win_data( hwnd )))
 +                {
@@ -116,10 +116,10 @@ index 11111111111..11111111111 100644
 --- a/dlls/winex11.drv/x11drv.h
 +++ b/dlls/winex11.drv/x11drv.h
 @@ -656,6 +656,7 @@ struct x11drv_win_data
-     BOOL        pending_fullscreen : 1;
-     BOOL        off_desktop : 1;/* is window on another WM desktop? */
-     BOOL        shell_cloak : 1;/* the shell is (un)cloaking the window */
-+    BOOL        keep_fs_state : 1; /* don't override the window state when restoring from an event, if fullscreen */
+     UINT        net_wm_fullscreen_monitors_set : 1; /* is _NET_WM_FULLSCREEN_MONITORS set */
+     UINT        off_desktop : 1;/* is window on another WM desktop? */
+     UINT        shell_cloak : 1;/* the shell is (un)cloaking the window */
++    UINT        keep_fs_state : 1; /* don't override the window state when restoring from an event, if fullscreen */
      int         wm_state;       /* current value of the WM_STATE property */
      DWORD       net_wm_state;   /* bit mask of active x11drv_net_wm_state values */
      Window      embedder;       /* window id of embedder */

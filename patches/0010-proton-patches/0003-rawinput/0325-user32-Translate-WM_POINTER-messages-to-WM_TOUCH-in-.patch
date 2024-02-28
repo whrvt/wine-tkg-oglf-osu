@@ -1,0 +1,184 @@
+From 86201b97e6cfbde0c181e76816aaf8b50aa313a4 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?R=C3=A9mi=20Bernon?= <rbernon@codeweavers.com>
+Date: Tue, 5 Oct 2021 14:47:24 +0200
+Subject: [PATCH 0325/1306] user32: Translate WM_POINTER* messages to WM_TOUCH
+ in DefWindowProc.
+
+CW-Bug-Id: #18214
+---
+ dlls/user32/input.c     |  9 ---------
+ dlls/user32/user32.spec |  2 +-
+ dlls/win32u/defwnd.c    | 32 ++++++++++++++++++++++++++++++++
+ dlls/win32u/input.c     |  9 +++++++++
+ dlls/win32u/main.c      |  5 +++++
+ dlls/win32u/win32u.spec |  2 +-
+ dlls/wow64win/user.c    |  8 ++++++++
+ include/ntuser.h        |  1 +
+ 8 files changed, 57 insertions(+), 11 deletions(-)
+
+diff --git a/dlls/user32/input.c b/dlls/user32/input.c
+index 238571361c8..9b2648332cd 100644
+--- a/dlls/user32/input.c
++++ b/dlls/user32/input.c
+@@ -712,15 +712,6 @@ BOOL WINAPI GetTouchInputInfo( HTOUCHINPUT handle, UINT count, TOUCHINPUT *ptr,
+     return FALSE;
+ }
+ 
+-/**********************************************************************
+- * IsTouchWindow (USER32.@)
+- */
+-BOOL WINAPI IsTouchWindow( HWND hwnd, ULONG *flags )
+-{
+-    FIXME( "hwnd %p, flags %p stub!\n", hwnd, flags );
+-    return FALSE;
+-}
+-
+ /*****************************************************************************
+  * RegisterTouchWindow (USER32.@)
+  */
+diff --git a/dlls/user32/user32.spec b/dlls/user32/user32.spec
+index 042730845f1..e8282c6b5a6 100644
+--- a/dlls/user32/user32.spec
++++ b/dlls/user32/user32.spec
+@@ -482,7 +482,7 @@
+ @ stdcall IsProcessDPIAware()
+ @ stdcall IsRectEmpty(ptr)
+ # @ stub IsServerSideWindow
+-@ stdcall IsTouchWindow(long ptr)
++@ stdcall IsTouchWindow(long ptr) NtUserIsTouchWindow
+ @ stdcall IsValidDpiAwarenessContext(long)
+ @ stdcall IsWinEventHookInstalled(long)
+ @ stdcall IsWindow(long)
+diff --git a/dlls/win32u/defwnd.c b/dlls/win32u/defwnd.c
+index b7153095e55..6828c30c115 100644
+--- a/dlls/win32u/defwnd.c
++++ b/dlls/win32u/defwnd.c
+@@ -30,6 +30,8 @@
+ 
+ WINE_DEFAULT_DEBUG_CHANNEL(win);
+ 
++#define WINE_MOUSE_HANDLE       ((HANDLE)1)
++#define WINE_KEYBOARD_HANDLE    ((HANDLE)2)
+ 
+ #define DRAG_FILE  0x454c4946
+ 
+@@ -2953,6 +2955,36 @@ LRESULT default_window_proc( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
+                                             0, NtUserSendMessage, ansi );
+         }
+         break;
++
++    case WM_POINTERDOWN:
++    case WM_POINTERUP:
++    case WM_POINTERUPDATE:
++    {
++        TOUCHINPUT touchinput;
++
++        if (!NtUserIsTouchWindow( hwnd, NULL )) return 0;
++        touchinput.x = LOWORD( lparam ) * 100;
++        touchinput.y = HIWORD( lparam ) * 100;
++        touchinput.hSource = WINE_MOUSE_HANDLE;
++        touchinput.dwID = GET_POINTERID_WPARAM( wparam );
++        touchinput.dwFlags = TOUCHEVENTF_NOCOALESCE | TOUCHEVENTF_PALM;
++        if (msg == WM_POINTERDOWN) touchinput.dwFlags |= TOUCHEVENTF_DOWN;
++        if (msg == WM_POINTERUP) touchinput.dwFlags |= TOUCHEVENTF_UP;
++        if (msg == WM_POINTERUPDATE) touchinput.dwFlags |= TOUCHEVENTF_MOVE;
++        if (IS_POINTER_PRIMARY_WPARAM( wparam )) touchinput.dwFlags |= TOUCHEVENTF_PRIMARY;
++        touchinput.dwMask = 0;
++        touchinput.dwTime = NtGetTickCount();
++        touchinput.dwExtraInfo = 0;
++        touchinput.cxContact = 0;
++        touchinput.cyContact = 0;
++
++        send_message( hwnd, WM_TOUCH, MAKELONG( 1, 0 ), (LPARAM)&touchinput );
++        break;
++    }
++
++    case WM_TOUCH:
++        /* FIXME: CloseTouchInputHandle( (HTOUCHINPUT)lparam ); */
++        return 0;
+     }
+ 
+     return result;
+diff --git a/dlls/win32u/input.c b/dlls/win32u/input.c
+index 57037dcabb5..9f08e2de435 100644
+--- a/dlls/win32u/input.c
++++ b/dlls/win32u/input.c
+@@ -2561,6 +2561,15 @@ BOOL clip_fullscreen_window( HWND hwnd, BOOL reset )
+     return ret;
+ }
+ 
++/**********************************************************************
++ *       NtUserIsTouchWindow    (win32u.@)
++ */
++BOOL WINAPI NtUserIsTouchWindow( HWND hwnd, ULONG *flags )
++{
++    FIXME( "hwnd %p, flags %p stub!\n", hwnd, flags );
++    return FALSE;
++}
++
+ /**********************************************************************
+  *       NtUserGetPointerInfoList    (win32u.@)
+  */
+diff --git a/dlls/win32u/main.c b/dlls/win32u/main.c
+index 2dc66e5df11..1808c59d030 100644
+--- a/dlls/win32u/main.c
++++ b/dlls/win32u/main.c
+@@ -1636,6 +1636,11 @@ BOOL SYSCALL_API NtUserIsMouseInPointerEnabled(void)
+     __ASM_SYSCALL_FUNC( __id_NtUserIsMouseInPointerEnabled );
+ }
+ 
++BOOL SYSCALL_API NtUserIsTouchWindow( HWND hwnd, ULONG *flags )
++{
++    __ASM_SYSCALL_FUNC( __id_NtUserIsTouchWindow );
++}
++
+ BOOL SYSCALL_API NtUserKillTimer( HWND hwnd, UINT_PTR id )
+ {
+     __ASM_SYSCALL_FUNC( __id_NtUserKillTimer );
+diff --git a/dlls/win32u/win32u.spec b/dlls/win32u/win32u.spec
+index 24dccb6ec1d..a5460c8b117 100644
+--- a/dlls/win32u/win32u.spec
++++ b/dlls/win32u/win32u.spec
+@@ -1056,7 +1056,7 @@
+ @ stub NtUserIsNonClientDpiScalingEnabled
+ @ stub NtUserIsResizeLayoutSynchronizationEnabled
+ @ stub NtUserIsTopLevelWindow
+-@ stub NtUserIsTouchWindow
++@ stdcall -syscall NtUserIsTouchWindow(long ptr)
+ @ stub NtUserIsWindowBroadcastingDpiToChildren
+ @ stub NtUserIsWindowGDIScaledDpiMessageEnabled
+ @ stdcall -syscall NtUserKillTimer(long long)
+diff --git a/dlls/wow64win/user.c b/dlls/wow64win/user.c
+index 44b422ef62c..36a28f7435a 100644
+--- a/dlls/wow64win/user.c
++++ b/dlls/wow64win/user.c
+@@ -3226,6 +3226,14 @@ NTSTATUS WINAPI wow64_NtUserIsMouseInPointerEnabled( UINT *args )
+     return NtUserIsMouseInPointerEnabled();
+ }
+ 
++NTSTATUS WINAPI wow64_NtUserIsTouchWindow( UINT *args )
++{
++    HWND hwnd = get_handle( &args );
++    ULONG *flags = get_ptr( &args );
++
++    return NtUserIsTouchWindow( hwnd, flags );
++}
++
+ NTSTATUS WINAPI wow64_NtUserKillTimer( UINT *args )
+ {
+     HWND hwnd = get_handle( &args );
+diff --git a/include/ntuser.h b/include/ntuser.h
+index cf9ff0ed732..b6775a40495 100644
+--- a/include/ntuser.h
++++ b/include/ntuser.h
+@@ -688,6 +688,7 @@ W32KAPI BOOL    WINAPI NtUserIsClipboardFormatAvailable( UINT format );
+ W32KAPI BOOL    WINAPI NtUserIsMouseInPointerEnabled(void);
+ W32KAPI BOOL    WINAPI NtUserInvalidateRect( HWND hwnd, const RECT *rect, BOOL erase );
+ W32KAPI BOOL    WINAPI NtUserInvalidateRgn( HWND hwnd, HRGN hrgn, BOOL erase );
++W32KAPI BOOL    WINAPI NtUserIsTouchWindow( HWND hwnd, ULONG *flags );
+ W32KAPI BOOL    WINAPI NtUserKillTimer( HWND hwnd, UINT_PTR id );
+ W32KAPI BOOL    WINAPI NtUserLockWindowUpdate( HWND hwnd );
+ W32KAPI BOOL    WINAPI NtUserLogicalToPerMonitorDPIPhysicalPoint( HWND hwnd, POINT *pt );
+-- 
+2.43.2
+

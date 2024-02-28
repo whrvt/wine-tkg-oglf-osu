@@ -1,0 +1,163 @@
+From e6368d53512a181fa3c86962744d735f6b57ee1b Mon Sep 17 00:00:00 2001
+From: whrvt <william@horvath.blog>
+Date: Tue, 27 Feb 2024 23:56:53 -0800
+Subject: [PATCH] Revert "wbemprox: Protect tables with a critical section."
+
+This reverts commit 9015eebf87e3de8f9c541299e529c9667cc4847b.
+---
+ dlls/wbemprox/class.c            |  2 +-
+ dlls/wbemprox/query.c            |  5 ++---
+ dlls/wbemprox/table.c            | 25 ++++---------------------
+ dlls/wbemprox/wbemprox_private.h |  4 ++--
+ 4 files changed, 9 insertions(+), 27 deletions(-)
+
+diff --git a/dlls/wbemprox/class.c b/dlls/wbemprox/class.c
+index 8e585c2f360..1570a5e534a 100644
+--- a/dlls/wbemprox/class.c
++++ b/dlls/wbemprox/class.c
+@@ -236,7 +236,7 @@ static struct record *create_record( struct table *table )
+         record->fields[i].u.ival  = 0;
+     }
+     record->count = table->num_cols;
+-    record->table = grab_table( table );
++    record->table = addref_table( table );
+     return record;
+ }
+ 
+diff --git a/dlls/wbemprox/query.c b/dlls/wbemprox/query.c
+index a6599334f58..d7990305003 100644
+--- a/dlls/wbemprox/query.c
++++ b/dlls/wbemprox/query.c
+@@ -54,12 +54,11 @@ HRESULT create_view( enum view_type type, enum wbm_namespace ns, const WCHAR *pa
+ 
+     case VIEW_TYPE_SELECT:
+     {
+-        struct table *table = find_table( ns, class );
++        struct table *table = grab_table( ns, class );
+         HRESULT hr;
+ 
+         if (table && (hr = append_table( view, table )) != S_OK)
+         {
+-            release_table( table );
+             free( view );
+             return hr;
+         }
+@@ -632,7 +631,7 @@ static HRESULT get_antecedent_table( enum wbm_namespace ns, const WCHAR *assoccl
+     }
+ 
+     if ((hr = do_query( ns, str, &query )) != S_OK) goto done;
+-    if (query->view->table_count) *table = grab_table( query->view->table[0] );
++    if (query->view->table_count) *table = addref_table( query->view->table[0] );
+     else *table = NULL;
+ 
+ done:
+diff --git a/dlls/wbemprox/table.c b/dlls/wbemprox/table.c
+index 67f57878ea5..ab386efa06b 100644
+--- a/dlls/wbemprox/table.c
++++ b/dlls/wbemprox/table.c
+@@ -29,15 +29,6 @@
+ 
+ WINE_DEFAULT_DEBUG_CHANNEL(wbemprox);
+ 
+-static CRITICAL_SECTION table_cs;
+-static CRITICAL_SECTION_DEBUG table_debug =
+-{
+-    0, 0, &table_cs,
+-    { &table_debug.ProcessLocksList, &table_debug.ProcessLocksList },
+-      0, 0, { (DWORD_PTR)(__FILE__ ": table_cs") }
+-};
+-static CRITICAL_SECTION table_cs = { &table_debug, -1, 0, 0, 0, 0 };
+-
+ HRESULT get_column_index( const struct table *table, const WCHAR *name, UINT *column )
+ {
+     UINT i;
+@@ -338,7 +329,6 @@ void free_table( struct table *table )
+ {
+     if (!table) return;
+ 
+-    EnterCriticalSection( &table_cs );
+     clear_table( table );
+     if (table->flags & TABLE_FLAG_DYNAMIC)
+     {
+@@ -349,23 +339,20 @@ void free_table( struct table *table )
+         list_remove( &table->entry );
+         free( table );
+     }
+-    LeaveCriticalSection( &table_cs );
+ }
+ 
+ void release_table( struct table *table )
+ {
+     if (!InterlockedDecrement( &table->refs )) free_table( table );
+-    LeaveCriticalSection( &table_cs );
+ }
+ 
+-struct table *grab_table( struct table *table )
++struct table *addref_table( struct table *table )
+ {
+-    EnterCriticalSection( &table_cs );
+     InterlockedIncrement( &table->refs );
+     return table;
+ }
+ 
+-struct table *find_table( enum wbm_namespace ns, const WCHAR *name )
++struct table *grab_table( enum wbm_namespace ns, const WCHAR *name )
+ {
+     struct table *table;
+ 
+@@ -376,7 +363,7 @@ struct table *find_table( enum wbm_namespace ns, const WCHAR *name )
+         if (name && !wcsicmp( table->name, name ))
+         {
+             TRACE("returning %p\n", table);
+-            return grab_table( table );
++            return addref_table( table );
+         }
+     }
+     return NULL;
+@@ -408,19 +395,15 @@ BOOL add_table( enum wbm_namespace ns, struct table *table )
+ 
+     if (ns == WBEMPROX_NAMESPACE_LAST) return FALSE;
+ 
+-    EnterCriticalSection( &table_cs );
+     LIST_FOR_EACH_ENTRY( iter, table_list[ns], struct table, entry )
+     {
+         if (!wcsicmp( iter->name, table->name ))
+         {
+             TRACE("table %s already exists\n", debugstr_w(table->name));
+-            LeaveCriticalSection( &table_cs );
+             return FALSE;
+         }
+     }
+     list_add_tail( table_list[ns], &table->entry );
+-    LeaveCriticalSection( &table_cs );
+-
+     TRACE("added %p\n", table);
+     return TRUE;
+ }
+@@ -431,7 +414,7 @@ BSTR get_method_name( enum wbm_namespace ns, const WCHAR *class, UINT index )
+     UINT i, count = 0;
+     BSTR ret;
+ 
+-    if (!(table = find_table( ns, class ))) return NULL;
++    if (!(table = grab_table( ns, class ))) return NULL;
+ 
+     for (i = 0; i < table->num_cols; i++)
+     {
+diff --git a/dlls/wbemprox/wbemprox_private.h b/dlls/wbemprox/wbemprox_private.h
+index 8e065bee0b9..3c8fa403c57 100644
+--- a/dlls/wbemprox/wbemprox_private.h
++++ b/dlls/wbemprox/wbemprox_private.h
+@@ -215,8 +215,8 @@ HRESULT execute_view( struct view * );
+ struct table *get_view_table( const struct view *, UINT );
+ void init_table_list( void );
+ enum wbm_namespace get_namespace_from_string( const WCHAR *namespace );
+-struct table *find_table( enum wbm_namespace, const WCHAR * );
+-struct table *grab_table( struct table * );
++struct table *grab_table( enum wbm_namespace, const WCHAR * );
++struct table *addref_table( struct table * );
+ void release_table( struct table * );
+ struct table *create_table( const WCHAR *, UINT, const struct column *, UINT, UINT, BYTE *,
+                             enum fill_status (*)(struct table *, const struct expr *) );
+-- 
+2.43.2
+

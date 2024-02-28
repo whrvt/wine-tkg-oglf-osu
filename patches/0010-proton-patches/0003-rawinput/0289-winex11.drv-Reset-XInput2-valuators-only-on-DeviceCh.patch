@@ -1,0 +1,29 @@
+From 5808e3d4718ed9575201dc1e013256b38d836faa Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?R=C3=A9mi=20Bernon?= <rbernon@codeweavers.com>
+Date: Sun, 14 Nov 2021 14:38:45 +0100
+Subject: [PATCH 0289/1306] winex11.drv: Reset XInput2 valuators only on
+ DeviceChange events.
+
+---
+ dlls/winex11.drv/mouse.c | 5 -----
+ 1 file changed, 5 deletions(-)
+
+diff --git a/dlls/winex11.drv/mouse.c b/dlls/winex11.drv/mouse.c
+index ae4f00f0d43..b36622fb895 100644
+--- a/dlls/winex11.drv/mouse.c
++++ b/dlls/winex11.drv/mouse.c
+@@ -329,11 +329,6 @@ static void disable_xinput2(void)
+     mask.deviceid = XIAllMasterDevices;
+ 
+     pXISelectEvents( data->display, DefaultRootWindow( data->display ), &mask, 1 );
+-
+-    data->x_valuator.number = -1;
+-    data->y_valuator.number = -1;
+-    data->x_valuator.value = 0;
+-    data->y_valuator.value = 0;
+ #endif
+ }
+ 
+-- 
+2.43.2
+

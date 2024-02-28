@@ -1,0 +1,26 @@
+From 6a1980b00c3c39e38025ae81f5c3e12edc4da126 Mon Sep 17 00:00:00 2001
+From: whrvt <william@horvath.blog>
+Date: Sat, 24 Feb 2024 09:15:28 -0800
+Subject: [PATCH 1/2] Revert "ntdll: Remove stale comment from
+ set_async_direct_result() documentation."
+
+This reverts commit b74e1a570b40220803a31700558e523ead383638.
+---
+ dlls/ntdll/unix/sync.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/dlls/ntdll/unix/sync.c b/dlls/ntdll/unix/sync.c
+index cde6a0f8483..1df2ea6e9d2 100644
+--- a/dlls/ntdll/unix/sync.c
++++ b/dlls/ntdll/unix/sync.c
+@@ -2593,6 +2593,7 @@ NTSTATUS WINAPI NtWaitForAlertByThreadId( const void *address, const LARGE_INTEG
+ #endif
+ 
+ /* Notify direct completion of async and close the wait handle if it is no longer needed.
++ * This function is a no-op (returns status as-is) if the supplied handle is NULL.
+  */
+ void set_async_direct_result( HANDLE *async_handle, NTSTATUS status, ULONG_PTR information, BOOL mark_pending )
+ {
+-- 
+2.43.2
+

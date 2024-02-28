@@ -1,0 +1,34 @@
+From cc55620472fb2656fc7262f6f14539368f3991f4 Mon Sep 17 00:00:00 2001
+From: Arkadiusz Hiler <ahiler@codeweavers.com>
+Date: Thu, 9 Feb 2023 21:24:57 +0200
+Subject: [PATCH 0406/1306] HACK: kernelbase: Do not flash the winedbg console
+ window.
+
+Depending on what the crashing software does with the handles / own
+console we may end up creating a new console window for windbg.
+
+Since Proton defaults to starting windbg in a non-interactive mode
+without displaying the crash dialog and redirects the log to unix's
+stderr we want to avoid confusing users.
+
+CW-Bug-Id: #21872
+---
+ dlls/kernelbase/debug.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/dlls/kernelbase/debug.c b/dlls/kernelbase/debug.c
+index edb6d321a46..26d95404429 100644
+--- a/dlls/kernelbase/debug.c
++++ b/dlls/kernelbase/debug.c
+@@ -600,7 +600,7 @@ static BOOL start_debugger( EXCEPTION_POINTERS *epointers, HANDLE event )
+     startup.cb = sizeof(startup);
+     startup.dwFlags = STARTF_USESHOWWINDOW;
+     startup.wShowWindow = SW_SHOWNORMAL;
+-    ret = CreateProcessW( NULL, cmdline, NULL, NULL, TRUE, 0, env, NULL, &startup, &info );
++    ret = CreateProcessW( NULL, cmdline, NULL, NULL, TRUE, CREATE_NO_WINDOW, env, NULL, &startup, &info );
+     FreeEnvironmentStringsW( env );
+ 
+     if (ret)
+-- 
+2.43.2
+

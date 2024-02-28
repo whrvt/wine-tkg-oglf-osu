@@ -1,0 +1,122 @@
+From 932a463a56a36ff9fe51de91500f13ebb3606542 Mon Sep 17 00:00:00 2001
+From: whrvt <william@horvath.blog>
+Date: Tue, 27 Feb 2024 14:45:47 -0800
+Subject: [PATCH 04/11] Revert "winevulkan: Handle invalid window in
+ vkGetPhysicalDevicePresentRectanglesKHR."
+
+This reverts commit b541b9661a2f10ace004a5384976ba29e5c0da03.
+---
+ dlls/vulkan-1/tests/vulkan.c    |  6 +++++-
+ dlls/winevulkan/make_vulkan     |  1 -
+ dlls/winevulkan/vulkan.c        | 19 -------------------
+ dlls/winevulkan/vulkan_thunks.c |  4 ++--
+ dlls/winevulkan/vulkan_thunks.h |  1 -
+ 5 files changed, 7 insertions(+), 24 deletions(-)
+
+diff --git a/dlls/vulkan-1/tests/vulkan.c b/dlls/vulkan-1/tests/vulkan.c
+index 716a524e796..371aef14255 100644
+--- a/dlls/vulkan-1/tests/vulkan.c
++++ b/dlls/vulkan-1/tests/vulkan.c
+@@ -656,10 +656,14 @@ static void test_win32_surface_hwnd(VkInstance vk_instance, VkPhysicalDevice vk_
+     if (IsWindow(hwnd))
+         ok(vr == VK_SUCCESS, "Got unexpected vr %d.\n", vr);
+     else
++    {
++        todo_wine
+         ok(vr == VK_SUCCESS /* Nvidia */ || vr == VK_ERROR_UNKNOWN /* AMD */, "Got unexpected vr %d.\n", vr);
++    }
+ 
+     memset(&rect, 0xcc, sizeof(rect));
+     vr = pvkGetPhysicalDevicePresentRectanglesKHR(vk_physical_device, surface, &count, &rect);
++    todo_wine_if(!IsWindow(hwnd))
+     ok(vr == VK_SUCCESS /* Nvidia */ || vr == VK_ERROR_UNKNOWN /* AMD */, "Got unexpected vr %d.\n", vr);
+     if (vr == VK_SUCCESS)
+     {
+@@ -672,7 +676,7 @@ static void test_win32_surface_hwnd(VkInstance vk_instance, VkPhysicalDevice vk_
+         };
+ 
+         ok(count == 1, "Got unexpected count %u.\n", count);
+-        todo_wine_if(IsWindow(hwnd) && IsRectEmpty(&client_rect))
++        todo_wine_if(IsRectEmpty(&client_rect))
+         ok(EqualRect(&tmp_rect, &client_rect), "Got unexpected rect %s.\n", wine_dbgstr_rect(&tmp_rect));
+     }
+ 
+diff --git a/dlls/winevulkan/make_vulkan b/dlls/winevulkan/make_vulkan
+index 0030f6243d0..c98ce300be6 100755
+--- a/dlls/winevulkan/make_vulkan
++++ b/dlls/winevulkan/make_vulkan
+@@ -259,7 +259,6 @@ MANUAL_UNIX_THUNKS = {
+     "vkGetPhysicalDeviceExternalSemaphorePropertiesKHR",
+     "vkGetPhysicalDeviceImageFormatProperties2",
+     "vkGetPhysicalDeviceImageFormatProperties2KHR",
+-    "vkGetPhysicalDevicePresentRectanglesKHR",
+     "vkGetPhysicalDeviceSurfaceCapabilities2KHR",
+     "vkGetPhysicalDeviceSurfaceCapabilitiesKHR",
+     "vkMapMemory",
+diff --git a/dlls/winevulkan/vulkan.c b/dlls/winevulkan/vulkan.c
+index 8531fc82ddd..045f984731e 100644
+--- a/dlls/winevulkan/vulkan.c
++++ b/dlls/winevulkan/vulkan.c
+@@ -1920,25 +1920,6 @@ VkResult wine_vkGetPhysicalDeviceSurfaceCapabilities2KHR(VkPhysicalDevice device
+     return res;
+ }
+ 
+-VkResult wine_vkGetPhysicalDevicePresentRectanglesKHR(VkPhysicalDevice device_handle, VkSurfaceKHR surface_handle,
+-                                                      uint32_t *rect_count, VkRect2D *rects)
+-{
+-    struct wine_phys_dev *physical_device = wine_phys_dev_from_handle(device_handle);
+-    struct wine_surface *surface = wine_surface_from_handle(surface_handle);
+-    struct wine_instance *instance = physical_device->instance;
+-
+-    if (!NtUserIsWindow(surface->hwnd))
+-    {
+-        if (rects && !*rect_count) return VK_INCOMPLETE;
+-        if (rects) memset(rects, 0, sizeof(VkRect2D));
+-        *rect_count = 1;
+-        return VK_SUCCESS;
+-    }
+-
+-    return instance->funcs.p_vkGetPhysicalDevicePresentRectanglesKHR(physical_device->host_physical_device,
+-                                                                     surface->driver_surface, rect_count, rects);
+-}
+-
+ VkResult wine_vkCreateDebugUtilsMessengerEXT(VkInstance handle,
+                                              const VkDebugUtilsMessengerCreateInfoEXT *create_info,
+                                              const VkAllocationCallbacks *allocator,
+diff --git a/dlls/winevulkan/vulkan_thunks.c b/dlls/winevulkan/vulkan_thunks.c
+index 3667fc51d90..ce61f5cc9cf 100644
+--- a/dlls/winevulkan/vulkan_thunks.c
++++ b/dlls/winevulkan/vulkan_thunks.c
+@@ -43065,7 +43065,7 @@ static NTSTATUS thunk64_vkGetPhysicalDevicePresentRectanglesKHR(void *args)
+ 
+     TRACE("%p, 0x%s, %p, %p\n", params->physicalDevice, wine_dbgstr_longlong(params->surface), params->pRectCount, params->pRects);
+ 
+-    params->result = wine_vkGetPhysicalDevicePresentRectanglesKHR(params->physicalDevice, params->surface, params->pRectCount, params->pRects);
++    params->result = wine_phys_dev_from_handle(params->physicalDevice)->instance->funcs.p_vkGetPhysicalDevicePresentRectanglesKHR(wine_phys_dev_from_handle(params->physicalDevice)->host_physical_device, wine_surface_from_handle(params->surface)->driver_surface, params->pRectCount, params->pRects);
+     return STATUS_SUCCESS;
+ }
+ #endif /* _WIN64 */
+@@ -43083,7 +43083,7 @@ static NTSTATUS thunk32_vkGetPhysicalDevicePresentRectanglesKHR(void *args)
+ 
+     TRACE("%#x, 0x%s, %#x, %#x\n", params->physicalDevice, wine_dbgstr_longlong(params->surface), params->pRectCount, params->pRects);
+ 
+-    params->result = wine_vkGetPhysicalDevicePresentRectanglesKHR((VkPhysicalDevice)UlongToPtr(params->physicalDevice), params->surface, (uint32_t *)UlongToPtr(params->pRectCount), (VkRect2D *)UlongToPtr(params->pRects));
++    params->result = wine_phys_dev_from_handle((VkPhysicalDevice)UlongToPtr(params->physicalDevice))->instance->funcs.p_vkGetPhysicalDevicePresentRectanglesKHR(wine_phys_dev_from_handle((VkPhysicalDevice)UlongToPtr(params->physicalDevice))->host_physical_device, wine_surface_from_handle(params->surface)->driver_surface, (uint32_t *)UlongToPtr(params->pRectCount), (VkRect2D *)UlongToPtr(params->pRects));
+     return STATUS_SUCCESS;
+ }
+ 
+diff --git a/dlls/winevulkan/vulkan_thunks.h b/dlls/winevulkan/vulkan_thunks.h
+index 28a8d8a0090..2c2712291c1 100644
+--- a/dlls/winevulkan/vulkan_thunks.h
++++ b/dlls/winevulkan/vulkan_thunks.h
+@@ -58,7 +58,6 @@ void wine_vkGetPhysicalDeviceExternalSemaphoreProperties(VkPhysicalDevice physic
+ void wine_vkGetPhysicalDeviceExternalSemaphorePropertiesKHR(VkPhysicalDevice physicalDevice, const VkPhysicalDeviceExternalSemaphoreInfo *pExternalSemaphoreInfo, VkExternalSemaphoreProperties *pExternalSemaphoreProperties);
+ VkResult wine_vkGetPhysicalDeviceImageFormatProperties2(VkPhysicalDevice physicalDevice, const VkPhysicalDeviceImageFormatInfo2 *pImageFormatInfo, VkImageFormatProperties2 *pImageFormatProperties);
+ VkResult wine_vkGetPhysicalDeviceImageFormatProperties2KHR(VkPhysicalDevice physicalDevice, const VkPhysicalDeviceImageFormatInfo2 *pImageFormatInfo, VkImageFormatProperties2 *pImageFormatProperties);
+-VkResult wine_vkGetPhysicalDevicePresentRectanglesKHR(VkPhysicalDevice physicalDevice, VkSurfaceKHR surface, uint32_t *pRectCount, VkRect2D *pRects);
+ VkResult wine_vkGetPhysicalDeviceSurfaceCapabilities2KHR(VkPhysicalDevice physicalDevice, const VkPhysicalDeviceSurfaceInfo2KHR *pSurfaceInfo, VkSurfaceCapabilities2KHR *pSurfaceCapabilities);
+ VkResult wine_vkGetPhysicalDeviceSurfaceCapabilitiesKHR(VkPhysicalDevice physicalDevice, VkSurfaceKHR surface, VkSurfaceCapabilitiesKHR *pSurfaceCapabilities);
+ VkResult wine_vkMapMemory(VkDevice device, VkDeviceMemory memory, VkDeviceSize offset, VkDeviceSize size, VkMemoryMapFlags flags, void **ppData);
+-- 
+2.43.2
+

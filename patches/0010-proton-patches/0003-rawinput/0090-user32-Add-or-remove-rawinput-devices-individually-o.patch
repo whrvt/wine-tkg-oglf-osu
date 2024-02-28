@@ -1,0 +1,46 @@
+From d44c830e2a550c63e1c740ea87e9e9213cf91670 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?R=C3=A9mi=20Bernon?= <rbernon@codeweavers.com>
+Date: Wed, 5 Jan 2022 16:14:02 +0100
+Subject: [PATCH 0090/1306] user32: Add or remove rawinput devices individually
+ on WM_DEVICECHANGE.
+
+CW-Bug-Id: #19841
+CW-Bug-Id: #19843
+CW-Bug-Id: #19844
+---
+ dlls/win32u/rawinput.c | 19 ++++++++++++++++++-
+ 1 file changed, 18 insertions(+), 1 deletion(-)
+
+diff --git a/dlls/win32u/rawinput.c b/dlls/win32u/rawinput.c
+index bd2e00a31c4..6ca0e5d7141 100644
+--- a/dlls/win32u/rawinput.c
++++ b/dlls/win32u/rawinput.c
+@@ -780,7 +780,24 @@ BOOL process_rawinput_message( MSG *msg, UINT hw_id, const struct hardware_msg_d
+     if (msg->message == WM_INPUT_DEVICE_CHANGE)
+     {
+         pthread_mutex_lock( &rawinput_mutex );
+-        rawinput_update_device_list();
++        if (msg_data->rawinput.type != RIM_TYPEHID || msg_data->rawinput.hid.param != GIDC_REMOVAL)
++            rawinput_update_device_list();
++        else
++        {
++            struct device *device;
++
++            LIST_FOR_EACH_ENTRY( device, &devices, struct device, entry )
++            {
++                if (device->handle == UlongToHandle(msg_data->rawinput.hid.device))
++                {
++                    list_remove( &device->entry );
++                    NtClose( device->file );
++                    free( device->data );
++                    free( device );
++                    break;
++                }
++            }
++        }
+         pthread_mutex_unlock( &rawinput_mutex );
+     }
+     else
+-- 
+2.43.2
+

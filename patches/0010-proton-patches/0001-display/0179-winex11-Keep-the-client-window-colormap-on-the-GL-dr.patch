@@ -1,0 +1,130 @@
+From 97f7886db821aca8d026fad87ab96ae88e07aec2 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?R=C3=A9mi=20Bernon?= <rbernon@codeweavers.com>
+Date: Thu, 30 Nov 2023 14:22:24 +0100
+Subject: [PATCH 0179/1306] winex11: Keep the client window colormap on the GL
+ drawable.
+
+Making sure it is kept alive as long as the client window lives.
+---
+ dlls/winex11.drv/opengl.c | 12 ++++++++++--
+ dlls/winex11.drv/vulkan.c |  2 +-
+ dlls/winex11.drv/window.c | 10 ++--------
+ dlls/winex11.drv/x11drv.h |  3 +--
+ 4 files changed, 14 insertions(+), 13 deletions(-)
+
+diff --git a/dlls/winex11.drv/opengl.c b/dlls/winex11.drv/opengl.c
+index bb8f13f78b9..329bca11aad 100644
+--- a/dlls/winex11.drv/opengl.c
++++ b/dlls/winex11.drv/opengl.c
+@@ -224,6 +224,7 @@ struct gl_drawable
+     enum dc_gl_type                type;         /* type of GL surface */
+     GLXDrawable                    drawable;     /* drawable for rendering with GL */
+     Window                         window;       /* window if drawable is a GLXWindow */
++    Colormap                       colormap;     /* colormap for the client window */
+     Pixmap                         pixmap;       /* base pixmap if drawable is a GLXPixmap */
+     const struct wgl_pixel_format *format;       /* pixel format for the drawable */
+     SIZE                           pixmap_size;  /* pixmap size for GLXPixmap drawables */
+@@ -1159,6 +1160,7 @@ static void release_gl_drawable( struct gl_drawable *gl )
+         TRACE( "destroying %lx drawable %lx\n", gl->window, gl->drawable );
+         pglXDestroyWindow( gdi_display, gl->drawable );
+         XDestroyWindow( gdi_display, gl->window );
++        XFreeColormap( gdi_display, gl->colormap );
+         break;
+     case DC_GL_PIXMAP_WIN:
+         TRACE( "destroying pixmap %lx drawable %lx\n", gl->pixmap, gl->drawable );
+@@ -1333,7 +1335,10 @@ static struct gl_drawable *create_gl_drawable( HWND hwnd, const struct wgl_pixel
+         NtUserGetAncestor( hwnd, GA_PARENT ) == NtUserGetDesktopWindow())  /* childless top-level window */
+     {
+         gl->type = DC_GL_WINDOW;
+-        gl->window = create_client_window( hwnd, visual );
++        gl->colormap = XCreateColormap( gdi_display, get_dummy_parent(), visual->visual,
++                                        (visual->class == PseudoColor || visual->class == GrayScale ||
++                                         visual->class == DirectColor) ? AllocAll : AllocNone );
++        gl->window = create_client_window( hwnd, visual, gl->colormap );
+         if (gl->window)
+             gl->drawable = pglXCreateWindow( gdi_display, gl->format->fbconfig, gl->window, NULL );
+         TRACE( "%p created client %lx drawable %lx\n", hwnd, gl->window, gl->drawable );
+@@ -1342,7 +1347,10 @@ static struct gl_drawable *create_gl_drawable( HWND hwnd, const struct wgl_pixel
+     else if(usexcomposite)
+     {
+         gl->type = DC_GL_CHILD_WIN;
+-        gl->window = create_client_window( hwnd, visual );
++        gl->colormap = XCreateColormap( gdi_display, get_dummy_parent(), visual->visual,
++                                        (visual->class == PseudoColor || visual->class == GrayScale ||
++                                         visual->class == DirectColor) ? AllocAll : AllocNone );
++        gl->window = create_client_window( hwnd, visual, gl->colormap );
+         if (gl->window)
+         {
+             gl->drawable = pglXCreateWindow( gdi_display, gl->format->fbconfig, gl->window, NULL );
+diff --git a/dlls/winex11.drv/vulkan.c b/dlls/winex11.drv/vulkan.c
+index b57282ee85f..7366759e76c 100644
+--- a/dlls/winex11.drv/vulkan.c
++++ b/dlls/winex11.drv/vulkan.c
+@@ -346,7 +346,7 @@ static VkResult X11DRV_vkCreateWin32SurfaceKHR(VkInstance instance,
+     x11_surface->hwnd = create_info->hwnd;
+     if (x11_surface->hwnd)
+     {
+-        x11_surface->window = create_client_window(create_info->hwnd, &default_visual);
++        x11_surface->window = create_client_window(create_info->hwnd, &default_visual, default_colormap);
+         x11_surface->hwnd_thread_id = NtUserGetWindowThread(x11_surface->hwnd, NULL);
+     }
+     else
+diff --git a/dlls/winex11.drv/window.c b/dlls/winex11.drv/window.c
+index 696edd6675c..58cccb7d77e 100644
+--- a/dlls/winex11.drv/window.c
++++ b/dlls/winex11.drv/window.c
+@@ -1709,7 +1709,7 @@ Window create_dummy_client_window(void)
+ /**********************************************************************
+  *		create_client_window
+  */
+-Window create_client_window( HWND hwnd, const XVisualInfo *visual )
++Window create_client_window( HWND hwnd, const XVisualInfo *visual, Colormap colormap )
+ {
+     Window dummy_parent = get_dummy_parent();
+     struct x11drv_win_data *data = get_win_data( hwnd );
+@@ -1734,12 +1734,7 @@ Window create_client_window( HWND hwnd, const XVisualInfo *visual )
+         TRACE( "%p reparent xwin %lx/%lx\n", data->hwnd, data->whole_window, data->client_window );
+     }
+ 
+-    if (data->client_colormap) XFreeColormap( gdi_display, data->client_colormap );
+-    data->client_colormap = XCreateColormap( gdi_display, dummy_parent, visual->visual,
+-                                            (visual->class == PseudoColor ||
+-                                             visual->class == GrayScale ||
+-                                             visual->class == DirectColor) ? AllocAll : AllocNone );
+-    attr.colormap = data->client_colormap;
++    attr.colormap = colormap;
+     attr.bit_gravity = NorthWestGravity;
+     attr.win_gravity = NorthWestGravity;
+     attr.backing_store = NotUseful;
+@@ -1992,7 +1987,6 @@ void X11DRV_DestroyWindow( HWND hwnd )
+     if (thread_data->last_xic_hwnd == hwnd) thread_data->last_xic_hwnd = 0;
+     if (data->icon_pixmap) XFreePixmap( gdi_display, data->icon_pixmap );
+     if (data->icon_mask) XFreePixmap( gdi_display, data->icon_mask );
+-    if (data->client_colormap) XFreeColormap( data->display, data->client_colormap );
+     free( data->icon_bits );
+     XDeleteContext( gdi_display, (XID)hwnd, win_data_context );
+     release_win_data( data );
+diff --git a/dlls/winex11.drv/x11drv.h b/dlls/winex11.drv/x11drv.h
+index 6fae6aa79a2..d446a1c6e51 100644
+--- a/dlls/winex11.drv/x11drv.h
++++ b/dlls/winex11.drv/x11drv.h
+@@ -617,7 +617,6 @@ struct x11drv_win_data
+     Display    *display;        /* display connection for the thread owning the window */
+     XVisualInfo vis;            /* X visual used by this window */
+     Colormap    whole_colormap; /* colormap if non-default visual */
+-    Colormap    client_colormap; /* colormap for the client window */
+     HWND        hwnd;           /* hwnd that this private data belongs to */
+     Window      whole_window;   /* X window for the complete window */
+     Window      client_window;  /* X window for the client area */
+@@ -667,7 +666,7 @@ extern void read_net_wm_states( Display *display, struct x11drv_win_data *data )
+ extern void update_net_wm_states( struct x11drv_win_data *data );
+ extern void make_window_embedded( struct x11drv_win_data *data );
+ extern Window create_dummy_client_window(void);
+-extern Window create_client_window( HWND hwnd, const XVisualInfo *visual );
++extern Window create_client_window( HWND hwnd, const XVisualInfo *visual, Colormap colormap );
+ extern void set_window_visual( struct x11drv_win_data *data, const XVisualInfo *vis, BOOL use_alpha );
+ extern void change_systray_owner( Display *display, Window systray_window );
+ extern HWND create_foreign_window( Display *display, Window window );
+-- 
+2.43.2
+

@@ -22,18 +22,22 @@ diff --git a/dlls/winex11.drv/window.c b/dlls/winex11.drv/window.c
 index 11111111111..11111111111 100644
 --- a/dlls/winex11.drv/window.c
 +++ b/dlls/winex11.drv/window.c
-@@ -1459,9 +1459,9 @@ static HWND sync_window_position( struct x11drv_win_data *data,
+@@ -1532,6 +1532,7 @@ static HWND sync_window_position( struct x11drv_win_data *data,
          /* and Above with a sibling doesn't work so well either, so we ignore it */
      }
  
 +    update_net_wm_states( data );
      set_size_hints( data, style );
      set_mwm_hints( data, style, ex_style );
+ //    /* KWin doesn't allow moving a window with _NET_WM_STATE_FULLSCREEN set. So we need to remove
+@@ -1541,7 +1542,6 @@ static HWND sync_window_position( struct x11drv_win_data *data,
+ //        original_rect = data->whole_rect;
+ //        SetRectEmpty( &data->whole_rect );
+ //    }
 -    update_net_wm_states( data );
      data->configure_serial = NextRequest( data->display );
      XReconfigureWMWindow( data->display, data->whole_window, data->vis.screen, mask, &changes );
-
- #ifdef HAVE_LIBXSHAPE
+     if (!IsRectEmpty( &original_rect ))
 -- 
 0.0.0
 

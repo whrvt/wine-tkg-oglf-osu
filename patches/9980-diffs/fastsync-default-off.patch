@@ -1,0 +1,13 @@
+diff --git a/server/fast_sync.c b/server/fast_sync.c
+index dd59153b68d..af7ba1a2c57 100644
+--- a/server/fast_sync.c
++++ b/server/fast_sync.c
+@@ -128,7 +128,7 @@ static struct linux_device *get_linux_device(void)
+     struct linux_device *device;
+     int unix_fd;
+ 
+-    if (getenv( "WINE_DISABLE_FAST_SYNC" ) && atoi( getenv( "WINE_DISABLE_FAST_SYNC" ) ))
++    if (!(getenv( "WINE_DISABLE_FAST_SYNC" ) && atoi( getenv( "WINE_DISABLE_FAST_SYNC" )) == 0 ))
+     {
+         set_error( STATUS_NOT_IMPLEMENTED );
+         return NULL;

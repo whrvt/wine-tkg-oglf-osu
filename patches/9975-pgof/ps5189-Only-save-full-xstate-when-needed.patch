@@ -1,0 +1,264 @@
+From 4cd2ff18e325bb3e4b6287f407e8c5551ef3b598 Mon Sep 17 00:00:00 2001
+From: Paul Gofman <pgofman@codeweavers.com>
+Date: Wed, 7 Feb 2024 18:52:45 -0600
+Subject: [PATCH] ntdll: Only save full xstate when needed.
+
+---
+ dlls/ntdll/unix/signal_arm.c    |  5 +++
+ dlls/ntdll/unix/signal_arm64.c  |  5 +++
+ dlls/ntdll/unix/signal_i386.c   | 45 +++++++++++++++++++++++++--
+ dlls/ntdll/unix/signal_x86_64.c | 54 ++++++++++++++++++++++++++++-----
+ dlls/ntdll/unix/thread.c        |  1 +
+ dlls/ntdll/unix/unix_private.h  |  1 +
+ 6 files changed, 101 insertions(+), 10 deletions(-)
+
+diff --git a/dlls/ntdll/unix/signal_arm.c b/dlls/ntdll/unix/signal_arm.c
+index e3889b6fcd3..b411b4c3d97 100644
+--- a/dlls/ntdll/unix/signal_arm.c
++++ b/dlls/ntdll/unix/signal_arm.c
+@@ -257,6 +257,11 @@ static BOOL is_inside_syscall( ucontext_t *sigcontext )
+ }
+ 
+ 
++void save_frame_xstate(void)
++{
++}
++
++
+ /***********************************************************************
+  *           unwind_builtin_dll
+  */
+diff --git a/dlls/ntdll/unix/signal_arm64.c b/dlls/ntdll/unix/signal_arm64.c
+index 6d6f7bcc8b9..6c96e850b65 100644
+--- a/dlls/ntdll/unix/signal_arm64.c
++++ b/dlls/ntdll/unix/signal_arm64.c
+@@ -204,6 +204,11 @@ static BOOL is_inside_syscall( ucontext_t *sigcontext )
+ }
+ 
+ 
++void save_frame_xstate(void)
++{
++}
++
++
+ /***********************************************************************
+  *           unwind_builtin_dll
+  *
+diff --git a/dlls/ntdll/unix/signal_i386.c b/dlls/ntdll/unix/signal_i386.c
+index 0e6b6dcee43..2c991efd528 100644
+--- a/dlls/ntdll/unix/signal_i386.c
++++ b/dlls/ntdll/unix/signal_i386.c
+@@ -603,6 +603,42 @@ static BOOL is_inside_syscall( ucontext_t *sigcontext )
+ }
+ 
+ 
++void save_frame_xstate(void)
++{
++    struct syscall_frame *frame = x86_thread_data()->syscall_frame;
++    UINT64 features = xstate_extended_features();
++    UINT64 mask, compaction;
++
++    if (!features || (frame->xstate.CompactionMask & features)) return;
++
++    mask = frame->xstate.Mask;
++    compaction = frame->xstate.CompactionMask;
++    if (frame->syscall_flags & SYSCALL_HAVE_XSAVEC)
++    {
++        __asm__ volatile (
++            "leal %0,%%ecx\n\t"
++            "movl %1,%%eax\n\t"
++            "movl %2,%%edx\n\t"
++            "xsavec (%%ecx)"
++            : "=m"(frame->u.xsave) : "m"(features), "m"(*((UINT32 *)&features + 1)) : "eax", "edx", "ecx"
++        );
++    }
++    else if (frame->syscall_flags & SYSCALL_HAVE_XSAVE)
++    {
++        __asm__ volatile (
++            "leal %0,%%ecx\n\t"
++            "movl %1,%%eax\n\t"
++            "movl %2,%%edx\n\t"
++            "xsave (%%ecx)"
++            : "=m"(frame->u.xsave) : "m"(features), "m"(*((UINT32 *)&features + 1)) : "eax", "edx", "ecx"
++        );
++    }
++    frame->xstate.Mask |= mask;
++    frame->xstate.CompactionMask |= compaction;
++    frame->restore_flags |= CONTEXT_XSTATE;
++}
++
++
+ struct xcontext
+ {
+     CONTEXT c;
+@@ -918,6 +954,8 @@ NTSTATUS WINAPI NtSetContextThread( HANDLE handle, const CONTEXT *context )
+     DWORD flags = context->ContextFlags & ~CONTEXT_i386;
+     BOOL self = (handle == GetCurrentThread());
+ 
++    save_frame_xstate();
++
+     if ((flags & CONTEXT_XSTATE) && xstate_extended_features())
+     {
+         CONTEXT_EX *context_ex = (CONTEXT_EX *)(context + 1);
+@@ -1027,6 +1065,8 @@ NTSTATUS WINAPI NtGetContextThread( HANDLE handle, CONTEXT *context )
+     BOOL self = (handle == GetCurrentThread());
+     NTSTATUS ret;
+ 
++    save_frame_xstate();
++
+     /* debug registers require a server call */
+     if (needed_flags & CONTEXT_DEBUG_REGISTERS) self = FALSE;
+ 
+@@ -2127,6 +2167,7 @@ static void usr1_handler( int signal, siginfo_t *siginfo, void *sigcontext )
+         NtGetContextThread( GetCurrentThread(), &context->c );
+         if (xstate_extended_features())
+         {
++            save_frame_xstate();
+             context_init_xstate( &context->c, &frame->xstate );
+             saved_compaction = frame->xstate.CompactionMask;
+         }
+@@ -2616,8 +2657,8 @@ __ASM_GLOBAL_FUNC( __wine_syscall_dispatcher,
+                    "addl %fs:0x1f4,%ebx\n\t"       /* x86_thread_data()->syscall_table */
+                    "testl $3,(%ecx)\n\t"           /* frame->syscall_flags & (SYSCALL_HAVE_XSAVE | SYSCALL_HAVE_XSAVEC) */
+                    "jz 2f\n\t"
+-                   "movl %fs:0x1fc,%eax\n\t"       /* x86_thread_data()->xstate_features_mask */
+-                   "movl %fs:0x200,%edx\n\t"       /* x86_thread_data()->xstate_features_mask high dword */
++                   "xorl %edx,%edx\n\t"
++                   "movl $3,%eax\n\t"
+                    "xorl %edi,%edi\n\t"
+                    "movl %edi,0x240(%ecx)\n\t"
+                    "movl %edi,0x244(%ecx)\n\t"
+diff --git a/dlls/ntdll/unix/signal_x86_64.c b/dlls/ntdll/unix/signal_x86_64.c
+index e08f6ad897a..0d9832adcfa 100644
+--- a/dlls/ntdll/unix/signal_x86_64.c
++++ b/dlls/ntdll/unix/signal_x86_64.c
+@@ -475,6 +475,42 @@ static BOOL is_inside_syscall( const ucontext_t *sigcontext )
+ }
+ 
+ 
++void save_frame_xstate(void)
++{
++    struct syscall_frame *frame = amd64_thread_data()->syscall_frame;
++    UINT64 features = xstate_extended_features();
++    UINT64 mask, compaction;
++
++    if (!features || (frame->xstate.CompactionMask & features)) return;
++
++    mask = frame->xstate.Mask;
++    compaction = frame->xstate.CompactionMask;
++    if (frame->syscall_flags & SYSCALL_HAVE_XSAVEC)
++    {
++        __asm__ volatile (
++            "leaq %0,%%rcx\n\t"
++            "movl %1,%%eax\n\t"
++            "movl %2,%%edx\n\t"
++            ".byte 0x48, 0x0f, 0xc7, 0x21" /* xsavec64 (%rcx) */
++            : "=m"(frame->xsave) : "m"(features), "m"(*((UINT32 *)&features + 1)) : "rax", "rdx", "rcx"
++        );
++    }
++    else if (frame->syscall_flags & SYSCALL_HAVE_XSAVE)
++    {
++        __asm__ volatile (
++            "leaq %0,%%rcx\n\t"
++            "movl %1,%%eax\n\t"
++            "movl %2,%%edx\n\t"
++            "xsave64 (%%rcx)"
++            : "=m"(frame->xsave) : "m"(features), "m"(*((UINT32 *)&features + 1)) : "rax", "rdx", "rcx"
++        );
++    }
++    frame->xstate.Mask |= mask;
++    frame->xstate.CompactionMask |= compaction;
++    frame->restore_flags |= CONTEXT_XSTATE;
++}
++
++
+ struct xcontext
+ {
+     CONTEXT c;
+@@ -975,6 +1011,8 @@ NTSTATUS WINAPI NtSetContextThread( HANDLE handle, const CONTEXT *context )
+     BOOL self = (handle == GetCurrentThread());
+     struct syscall_frame *frame = amd64_thread_data()->syscall_frame;
+ 
++    save_frame_xstate();
++
+     if ((flags & CONTEXT_XSTATE) && xstate_extended_features())
+     {
+         CONTEXT_EX *context_ex = (CONTEXT_EX *)(context + 1);
+@@ -1069,6 +1107,8 @@ NTSTATUS WINAPI NtGetContextThread( HANDLE handle, CONTEXT *context )
+     DWORD needed_flags = context->ContextFlags & ~CONTEXT_AMD64;
+     BOOL self = (handle == GetCurrentThread());
+ 
++    save_frame_xstate();
++
+     /* debug registers require a server call */
+     if (needed_flags & CONTEXT_DEBUG_REGISTERS) self = FALSE;
+ 
+@@ -1195,6 +1235,7 @@ NTSTATUS set_thread_wow64_context( HANDLE handle, const void *ctx, ULONG size )
+     const I386_CONTEXT *context = ctx;
+     DWORD flags = context->ContextFlags & ~CONTEXT_i386;
+ 
++    save_frame_xstate();
+     if (size != sizeof(I386_CONTEXT)) return STATUS_INFO_LENGTH_MISMATCH;
+ 
+     /* debug registers require a server call */
+@@ -1293,6 +1334,8 @@ NTSTATUS get_thread_wow64_context( HANDLE handle, void *ctx, ULONG size )
+     I386_CONTEXT *wow_frame, *context = ctx;
+     BOOL self = (handle == GetCurrentThread());
+ 
++    save_frame_xstate();
++
+     if (size != sizeof(I386_CONTEXT)) return STATUS_INFO_LENGTH_MISMATCH;
+ 
+     needed_flags = context->ContextFlags & ~CONTEXT_i386;
+@@ -2162,6 +2205,7 @@ static void usr1_handler( int signal, siginfo_t *siginfo, void *sigcontext )
+         NtGetContextThread( GetCurrentThread(), &context->c );
+         if (xstate_extended_features())
+         {
++            save_frame_xstate();
+             context_init_xstate( &context->c, &frame->xstate );
+             saved_compaction = frame->xstate.CompactionMask;
+         }
+@@ -2661,14 +2705,8 @@ __ASM_GLOBAL_FUNC( __wine_syscall_dispatcher,
+                    "movl 0xb0(%rcx),%r14d\n\t"     /* frame->syscall_flags */
+                    "testl $3,%r14d\n\t"            /* SYSCALL_HAVE_XSAVE | SYSCALL_HAVE_XSAVEC */
+                    "jz 2f\n\t"
+-#ifdef __APPLE__
+-                   "movq %gs:0x30,%rdx\n\t"
+-                   "movl 0x340(%rdx),%eax\n\t"
+-                   "movl 0x344(%rdx),%edx\n\t"
+-#else
+-                   "movl %gs:0x340,%eax\n\t"       /* amd64_thread_data()->xstate_features_mask */
+-                   "movl %gs:0x344,%edx\n\t"       /* amd64_thread_data()->xstate_features_mask high dword */
+-#endif
++                   "xorl %edx,%edx\n\t"
++                   "movl $3,%eax\n\t"
+                    "xorq %rbp,%rbp\n\t"
+                    "movq %rbp,0x2c0(%rcx)\n\t"
+                    "movq %rbp,0x2c8(%rcx)\n\t"
+diff --git a/dlls/ntdll/unix/thread.c b/dlls/ntdll/unix/thread.c
+index 660d8389cae..dc0f103b28f 100644
+--- a/dlls/ntdll/unix/thread.c
++++ b/dlls/ntdll/unix/thread.c
+@@ -1597,6 +1597,7 @@ NTSTATUS WINAPI NtSuspendThread( HANDLE handle, ULONG *count )
+ {
+     unsigned int ret;
+ 
++    save_frame_xstate();
+     SERVER_START_REQ( suspend_thread )
+     {
+         req->handle = wine_server_obj_handle( handle );
+diff --git a/dlls/ntdll/unix/unix_private.h b/dlls/ntdll/unix/unix_private.h
+index b249570d421..853cc303fef 100644
+--- a/dlls/ntdll/unix/unix_private.h
++++ b/dlls/ntdll/unix/unix_private.h
+@@ -220,6 +220,7 @@ extern UINT64 xstate_supported_features_mask;
+ extern UINT64 xstate_features_size;
+ extern unsigned int xstate_get_size( UINT64 compaction_mask, UINT64 mask );
+ extern void copy_xstate( XSAVE_AREA_HEADER *dst, XSAVE_AREA_HEADER *src, UINT64 mask );
++extern void save_frame_xstate(void);
+ 
+ static inline UINT64 xstate_extended_features(void)
+ {
+-- 
+GitLab
+

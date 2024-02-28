@@ -1,0 +1,25 @@
+From f2c545b0d7d5812980b1755d35db6e86d2b9e896 Mon Sep 17 00:00:00 2001
+From: Paul Gofman <pgofman@codeweavers.com>
+Date: Wed, 3 Jan 2024 10:42:29 -0600
+Subject: [PATCH 1076/1306] ir50_32: HACK: Don't build dll.
+
+CW-Bug-Id: #23162
+---
+ configure.ac | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/configure.ac b/configure.ac
+index 055e8646fcc..3decacab398 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -2788,7 +2788,6 @@ WINE_CONFIG_MAKEFILE(dlls/inseng)
+ WINE_CONFIG_MAKEFILE(dlls/iphlpapi)
+ WINE_CONFIG_MAKEFILE(dlls/iphlpapi/tests)
+ WINE_CONFIG_MAKEFILE(dlls/iprop)
+-WINE_CONFIG_MAKEFILE(dlls/ir50_32)
+ WINE_CONFIG_MAKEFILE(dlls/irprops.cpl)
+ WINE_CONFIG_MAKEFILE(dlls/itircl)
+ WINE_CONFIG_MAKEFILE(dlls/itss)
+-- 
+2.43.2
+

@@ -1,0 +1,19 @@
+diff --git a/dlls/winebus.sys/main.c b/dlls/winebus.sys/main.const
+index ab096319..5075c61b 100644
+--- a/dlls/winebus.sys/main.c
++++ b/dlls/winebus.sys/main.const
+@@ -811,9 +811,11 @@ static NTSTATUS fdo_pnp_dispatch(DEVICE_OBJECT *device, IRP *irp)
+         mouse_device_create();
+         keyboard_device_create();
+ 
+-        udev_driver_init();
+-        iohid_driver_init();
+-        sdl_driver_init();
++        if (!check_bus_option(L"DisableUdevInit", 1)) udev_driver_init();
++        
++        if (!check_bus_option(L"DisableIohidInit", 1)) iohid_driver_init();
++
++        if (!check_bus_option(L"DisableSdlInit", 1)) sdl_driver_init();
+ 
+         irp->IoStatus.Status = STATUS_SUCCESS;
+         break;

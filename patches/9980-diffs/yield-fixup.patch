@@ -1,0 +1,27 @@
+diff --git a/dlls/win32u/message.c b/dlls/win32u/message.c
+index 11111111111..11111111111 100644
+--- a/dlls/win32u/message.c
++++ b/dlls/win32u/message.c
+#@@ -3027,7 +3027,7 @@ static DWORD wait_message( DWORD count, const HANDLE *handles,
+#     }
+#     else ret = WAIT_TIMEOUT;
+# 
+#-    if (ret == WAIT_TIMEOUT && !count && !timeout->QuadPart) wine_yield_execution();
+#+    if (ret == WAIT_TIMEOUT && !count && !timeout->QuadPart) NtYieldExecution();
+#     if ((mask & QS_INPUT) == QS_INPUT) get_user_thread_info()->message_count = 0;
+# 
+#     if (enable_thunk_lock)
+@@ -3004,6 +3004,13 @@ static inline LARGE_INTEGER *get_nt_timeout( LARGE_INTEGER *time, DWORD timeout
+     return time;
+ }
+ 
++void wine_yield_execution(void)
++{
++#ifdef HAVE_SCHED_YIELD
++    sched_yield();
++#endif
++}
++
+ /* wait for message or signaled handle */
+ static DWORD wait_message( DWORD count, const HANDLE *handles,
+                            const LARGE_INTEGER *timeout, DWORD mask, DWORD flags )

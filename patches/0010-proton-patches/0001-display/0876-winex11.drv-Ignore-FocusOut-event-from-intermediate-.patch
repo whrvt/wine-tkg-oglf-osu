@@ -1,0 +1,73 @@
+From c5a0993522cf34b5f1000073d3e4605d42dea8bc Mon Sep 17 00:00:00 2001
+From: Paul Gofman <pgofman@codeweavers.com>
+Date: Thu, 30 Nov 2023 18:53:30 -0600
+Subject: [PATCH 0876/1306] winex11.drv: Ignore FocusOut event from
+ intermediate unmap on Gamescope.
+
+CW-Bug-Id: #22953
+---
+ dlls/winex11.drv/event.c  | 12 ++++++++++++
+ dlls/winex11.drv/window.c |  7 +++++++
+ dlls/winex11.drv/x11drv.h |  1 +
+ 3 files changed, 20 insertions(+)
+
+diff --git a/dlls/winex11.drv/event.c b/dlls/winex11.drv/event.c
+index 6c7ee637f34..cec5712ae32 100644
+--- a/dlls/winex11.drv/event.c
++++ b/dlls/winex11.drv/event.c
+@@ -930,9 +930,21 @@ static void focus_out( Display *display , HWND hwnd )
+ static BOOL X11DRV_FocusOut( HWND hwnd, XEvent *xev )
+ {
+     XFocusChangeEvent *event = &xev->xfocus;
++    struct x11drv_win_data *data;
+ 
+     TRACE( "win %p xwin %lx detail=%s mode=%s\n", hwnd, event->window, focus_details[event->detail], focus_modes[event->mode] );
+ 
++    if ((data = get_win_data( hwnd )))
++    {
++        if (data->fake_unmap_serial == event->serial)
++        {
++            release_win_data( data );
++            TRACE( "Ignoring event from intermediate unmap.\n" );
++            return FALSE;
++        }
++        release_win_data( data );
++    }
++
+     if (event->detail == NotifyPointer)
+     {
+         if (!hwnd && event->window == x11drv_thread_data()->clip_window)
+# diff --git a/dlls/winex11.drv/window.c b/dlls/winex11.drv/window.c
+# index 59f2e71c100..17f44982620 100644
+# --- a/dlls/winex11.drv/window.c
+# +++ b/dlls/winex11.drv/window.c
+# @@ -3353,7 +3353,14 @@ void X11DRV_WindowPosChanged( HWND hwnd, HWND insert_after, UINT swp_flags,
+#                  /* whole_window could be both iconic and mapped. Since XMapWindow() doesn't do
+#                   * anything if the window is already mapped, we need to unmap it first */
+#                  if (data->mapped)
+# +                {
+# +                    if (wm_is_steamcompmgr( data->display ))
+# +                    {
+# +                        /* Gamescope will generate FocusOut event upon processing UnmapNotify. Ignore it. */
+# +                        data->fake_unmap_serial = NextRequest( data->display );
+# +                    }
+#                      XUnmapWindow( data->display, data->whole_window );
+# +                }
+#                  XMapWindow( data->display, data->whole_window );
+#              }
+#              update_net_wm_states( data );
+diff --git a/dlls/winex11.drv/x11drv.h b/dlls/winex11.drv/x11drv.h
+index 3fce082afde..9d3f742cbad 100644
+--- a/dlls/winex11.drv/x11drv.h
++++ b/dlls/winex11.drv/x11drv.h
+@@ -656,6 +656,7 @@ struct x11drv_win_data
+     int         wm_state;       /* current value of the WM_STATE property */
+     DWORD       net_wm_state;   /* bit mask of active x11drv_net_wm_state values */
+     Window      embedder;       /* window id of embedder */
++    unsigned long fake_unmap_serial; /* serial number of unmap before map for restoring window from minimized state in X11DRV_WindowPosChanged() */
+     unsigned long configure_serial; /* serial number of last configure request */
+     struct window_surface *surface;
+     Pixmap         icon_pixmap;
+-- 
+2.43.2
+

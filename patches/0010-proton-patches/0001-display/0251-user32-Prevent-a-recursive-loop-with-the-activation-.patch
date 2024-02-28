@@ -1,0 +1,96 @@
+From e750c17b8a540320989bf890596361d427b8c788 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?R=C3=A9mi=20Bernon?= <rbernon@codeweavers.com>
+Date: Thu, 27 Jan 2022 18:21:29 +0100
+Subject: [PATCH 0251/1306] user32: Prevent a recursive loop with the
+ activation messages.
+
+When activating a window and sending activation messages to the window
+procedure, Windows avoids a recursive loop by not sending more of these
+messages or hooks while it's still activating the window.
+
+CW-Bug-Id: #19612
+Wine-Bug: https://bugs.winehq.org/show_bug.cgi?id=46274
+Wine-Staging: user32-recursive-activation
+---
+ dlls/win32u/input.c          | 16 +++++++++++-----
+ dlls/win32u/ntuser_private.h |  1 +
+ 2 files changed, 12 insertions(+), 5 deletions(-)
+
+diff --git a/dlls/win32u/input.c b/dlls/win32u/input.c
+index 1666e24e09b..7ef4ab5a88a 100644
+--- a/dlls/win32u/input.c
++++ b/dlls/win32u/input.c
+@@ -1867,7 +1867,7 @@ static HWND set_focus_window( HWND hwnd, BOOL from_active )
+ static BOOL set_active_window( HWND hwnd, HWND *prev, BOOL mouse, BOOL focus )
+ {
+     HWND previous = get_active_window();
+-    BOOL ret;
++    BOOL ret = FALSE;
+     DWORD old_thread, new_thread;
+     CBTACTIVATESTRUCT cbt;
+ 
+@@ -1877,6 +1877,9 @@ static BOOL set_active_window( HWND hwnd, HWND *prev, BOOL mouse, BOOL focus )
+         goto done;
+     }
+ 
++    if (prev) *prev = previous;
++    if (win_set_flags( hwnd, WIN_IS_ACTIVATING, 0 ) & WIN_IS_ACTIVATING) return TRUE;
++
+     /* call CBT hook chain */
+     cbt.fMouse     = mouse;
+     cbt.hWndActive = previous;
+@@ -1896,7 +1899,7 @@ static BOOL set_active_window( HWND hwnd, HWND *prev, BOOL mouse, BOOL focus )
+             previous = wine_server_ptr_handle( reply->previous );
+     }
+     SERVER_END_REQ;
+-    if (!ret) return FALSE;
++    if (!ret) goto done;
+     if (prev) *prev = previous;
+     if (previous == hwnd) goto done;
+ 
+@@ -1906,7 +1909,7 @@ static BOOL set_active_window( HWND hwnd, HWND *prev, BOOL mouse, BOOL focus )
+         if (send_message( hwnd, WM_QUERYNEWPALETTE, 0, 0 ))
+             send_message_timeout( HWND_BROADCAST, WM_PALETTEISCHANGING, (WPARAM)hwnd, 0,
+                                   SMTO_ABORTIFHUNG, 2000, FALSE );
+-        if (!is_window(hwnd)) return FALSE;
++        if (!(ret = is_window(hwnd))) goto done;
+     }
+ 
+     old_thread = previous ? get_window_thread( previous, NULL ) : 0;
+@@ -1940,7 +1943,9 @@ static BOOL set_active_window( HWND hwnd, HWND *prev, BOOL mouse, BOOL focus )
+ 
+     if (is_window(hwnd))
+     {
+-        send_message( hwnd, WM_NCACTIVATE, hwnd == NtUserGetForegroundWindow(), (LPARAM)previous );
++        send_message( hwnd, WM_NCACTIVATE,
++                      (hwnd == NtUserGetForegroundWindow()) && !(win_get_flags(previous) & WIN_IS_ACTIVATING),
++                      (LPARAM)previous );
+         send_message( hwnd, WM_ACTIVATE,
+                       MAKEWPARAM( mouse ? WA_CLICKACTIVE : WA_ACTIVE, is_iconic(hwnd) ),
+                       (LPARAM)previous );
+@@ -1964,8 +1969,9 @@ static BOOL set_active_window( HWND hwnd, HWND *prev, BOOL mouse, BOOL focus )
+     }
+ 
+ done:
++    win_set_flags( hwnd, 0, WIN_IS_ACTIVATING );
+     if (hwnd) clip_fullscreen_window( hwnd, FALSE );
+-    return TRUE;
++    return ret;
+ }
+ 
+ /**********************************************************************
+diff --git a/dlls/win32u/ntuser_private.h b/dlls/win32u/ntuser_private.h
+index 11bb7f4baf6..2297af8bdd6 100644
+--- a/dlls/win32u/ntuser_private.h
++++ b/dlls/win32u/ntuser_private.h
+@@ -104,6 +104,7 @@ typedef struct tagWND
+ #define WIN_NEEDS_SHOW_OWNEDPOPUP 0x0020 /* WM_SHOWWINDOW:SC_SHOW must be sent in the next ShowOwnedPopup call */
+ #define WIN_CHILDREN_MOVED        0x0040 /* children may have moved, ignore stored positions */
+ #define WIN_HAS_IME_WIN           0x0080 /* the window has been registered with imm32 */
++#define WIN_IS_ACTIVATING         0x0100 /* the window is being activated */
+ 
+ #define WND_OTHER_PROCESS ((WND *)1)  /* returned by get_win_ptr on unknown window handles */
+ #define WND_DESKTOP       ((WND *)2)  /* returned by get_win_ptr on the desktop window */
+-- 
+2.43.2
+

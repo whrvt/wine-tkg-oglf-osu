@@ -1,0 +1,36 @@
+From 79d556b2d71bb68d53a2277b0f399c6c82fc38e6 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?R=C3=A9mi=20Bernon?= <rbernon@codeweavers.com>
+Date: Thu, 27 Jan 2022 18:23:08 +0100
+Subject: [PATCH 0252/1306] user32: Use PostMessageW in set_foreground_window.
+
+Instead of SendNotifyMessageW for WM_WINE_SETACTIVEWINDOW.
+
+CW-Bug-Id: #19612
+---
+ dlls/win32u/input.c | 6 ++----
+ 1 file changed, 2 insertions(+), 4 deletions(-)
+
+diff --git a/dlls/win32u/input.c b/dlls/win32u/input.c
+index 7ef4ab5a88a..f3451dcd57b 100644
+--- a/dlls/win32u/input.c
++++ b/dlls/win32u/input.c
+@@ -2087,14 +2087,12 @@ BOOL set_foreground_window( HWND hwnd, BOOL mouse )
+     if (ret && previous != hwnd)
+     {
+         if (send_msg_old)  /* old window belongs to other thread */
+-            NtUserMessageCall( previous, WM_WINE_SETACTIVEWINDOW, 0, 0,
+-                               0, NtUserSendNotifyMessage, FALSE );
++            NtUserPostMessage( previous, WM_WINE_SETACTIVEWINDOW, 0, 0 );
+         else if (send_msg_new)  /* old window belongs to us but new one to other thread */
+             ret = set_active_window( 0, NULL, mouse, TRUE );
+ 
+         if (send_msg_new)  /* new window belongs to other thread */
+-            NtUserMessageCall( hwnd, WM_WINE_SETACTIVEWINDOW, (WPARAM)hwnd, 0,
+-                               0, NtUserSendNotifyMessage, FALSE );
++            NtUserPostMessage( hwnd, WM_WINE_SETACTIVEWINDOW, (WPARAM)hwnd, 0 );
+         else  /* new window belongs to us */
+             ret = set_active_window( hwnd, NULL, mouse, TRUE );
+     }
+-- 
+2.43.2
+

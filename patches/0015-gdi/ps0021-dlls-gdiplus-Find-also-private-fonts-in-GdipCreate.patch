@@ -105,7 +105,7 @@ index 11111111111..11111111111 100644
 +        list_remove(&FontFamily->font_list_entry);
 +    LeaveCriticalSection(&font_list_cs);
 +    if (!refcount)
-         heap_free(FontFamily);
+         free(FontFamily);
 -    }
  
      return Ok;

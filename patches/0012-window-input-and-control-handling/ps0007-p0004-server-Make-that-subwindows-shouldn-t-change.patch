@@ -16,74 +16,74 @@ Signed-off-by: Jiajin Cui <cuijiajin@uniontech.com>
  server/window.c         | 109 ++++++++++++++++++++++++++--------------
  3 files changed, 79 insertions(+), 48 deletions(-)
 
-diff --git a/dlls/user32/tests/msg.c b/dlls/user32/tests/msg.c
-index 11111111111..11111111111 100644
---- a/dlls/user32/tests/msg.c
-+++ b/dlls/user32/tests/msg.c
-@@ -6234,7 +6234,7 @@ static void test_setwindowpos(void)
-                              hwnd, 0, GetModuleHandleA(NULL), NULL);
-     ok_sequence(WmCreateChildtopmostSeq, "CreateChildWindow", FALSE);
-     ok(hwnd_A != NULL, "Failed to create child witch WS_EX_TOPMOST\n");
--    todo_wine ok(GetWindowLongA(hwnd_A, GWL_EXSTYLE) & WS_EX_TOPMOST, "%p: expected topmost\n", hwnd_A);
-+    ok(GetWindowLongA(hwnd_A, GWL_EXSTYLE) & WS_EX_TOPMOST, "%p: expected topmost\n", hwnd_A);
+# diff --git a/dlls/user32/tests/msg.c b/dlls/user32/tests/msg.c
+# index 11111111111..11111111111 100644
+# --- a/dlls/user32/tests/msg.c
+# +++ b/dlls/user32/tests/msg.c
+# @@ -6234,7 +6234,7 @@ static void test_setwindowpos(void)
+#                               hwnd, 0, GetModuleHandleA(NULL), NULL);
+#      ok_sequence(WmCreateChildtopmostSeq, "CreateChildWindow", FALSE);
+#      ok(hwnd_A != NULL, "Failed to create child witch WS_EX_TOPMOST\n");
+# -    todo_wine ok(GetWindowLongA(hwnd_A, GWL_EXSTYLE) & WS_EX_TOPMOST, "%p: expected topmost\n", hwnd_A);
+# +    ok(GetWindowLongA(hwnd_A, GWL_EXSTYLE) & WS_EX_TOPMOST, "%p: expected topmost\n", hwnd_A);
  
-     /* repeat */
-     flush_events();
-diff --git a/dlls/user32/tests/win.c b/dlls/user32/tests/win.c
-index 11111111111..11111111111 100644
---- a/dlls/user32/tests/win.c
-+++ b/dlls/user32/tests/win.c
-@@ -3938,42 +3938,42 @@ static void test_child_topmost_zorder()
-                              main_window, 0, GetModuleHandleA(NULL), NULL);
-     check_z_order(hwnd_C, hwnd_B, 0, 0, FALSE);
-     check_z_order(hwnd_B, hwnd_A, hwnd_C, 0, FALSE);
--todo_wine check_z_order(hwnd_A, 0, hwnd_B, 0, TRUE);
-+    check_z_order(hwnd_A, 0, hwnd_B, 0, TRUE);
+#      /* repeat */
+#      flush_events();
+# diff --git a/dlls/user32/tests/win.c b/dlls/user32/tests/win.c
+# index 11111111111..11111111111 100644
+# --- a/dlls/user32/tests/win.c
+# +++ b/dlls/user32/tests/win.c
+# @@ -3938,42 +3938,42 @@ static void test_child_topmost_zorder()
+#                               main_window, 0, GetModuleHandleA(NULL), NULL);
+#      check_z_order(hwnd_C, hwnd_B, 0, 0, FALSE);
+#      check_z_order(hwnd_B, hwnd_A, hwnd_C, 0, FALSE);
+# -todo_wine check_z_order(hwnd_A, 0, hwnd_B, 0, TRUE);
+# +    check_z_order(hwnd_A, 0, hwnd_B, 0, TRUE);
  
-     SetWindowPos(hwnd_A, HWND_TOP, 0,0,0,0, SWP_NOSIZE|SWP_NOMOVE);
-     check_z_order(hwnd_C, hwnd_B, hwnd_A, 0, FALSE);
-     check_z_order(hwnd_B, 0, hwnd_C, 0, FALSE);
--todo_wine check_z_order(hwnd_A, hwnd_C, 0, 0, TRUE);
-+    check_z_order(hwnd_A, hwnd_C, 0, 0, TRUE);
+#      SetWindowPos(hwnd_A, HWND_TOP, 0,0,0,0, SWP_NOSIZE|SWP_NOMOVE);
+#      check_z_order(hwnd_C, hwnd_B, hwnd_A, 0, FALSE);
+#      check_z_order(hwnd_B, 0, hwnd_C, 0, FALSE);
+# -todo_wine check_z_order(hwnd_A, hwnd_C, 0, 0, TRUE);
+# +    check_z_order(hwnd_A, hwnd_C, 0, 0, TRUE);
  
-     SetWindowPos(hwnd_A, HWND_TOPMOST, 0,0,0,0, SWP_NOSIZE|SWP_NOMOVE);
-     check_z_order(hwnd_C, hwnd_B, hwnd_A, 0, FALSE);
-     check_z_order(hwnd_B, 0, hwnd_C, 0, FALSE);
--todo_wine check_z_order(hwnd_A, hwnd_C, 0, 0, TRUE);
-+    check_z_order(hwnd_A, hwnd_C, 0, 0, TRUE);
+#      SetWindowPos(hwnd_A, HWND_TOPMOST, 0,0,0,0, SWP_NOSIZE|SWP_NOMOVE);
+#      check_z_order(hwnd_C, hwnd_B, hwnd_A, 0, FALSE);
+#      check_z_order(hwnd_B, 0, hwnd_C, 0, FALSE);
+# -todo_wine check_z_order(hwnd_A, hwnd_C, 0, 0, TRUE);
+# +    check_z_order(hwnd_A, hwnd_C, 0, 0, TRUE);
  
-     SetWindowPos(hwnd_B, HWND_TOP, 0,0,0,0, SWP_NOSIZE|SWP_NOMOVE);
-     check_z_order(hwnd_C, 0, hwnd_A, 0, FALSE);
-     check_z_order(hwnd_B, hwnd_A, 0, 0, FALSE);
--todo_wine check_z_order(hwnd_A, hwnd_C, hwnd_B, 0, TRUE);
-+    check_z_order(hwnd_A, hwnd_C, hwnd_B, 0, TRUE);
+#      SetWindowPos(hwnd_B, HWND_TOP, 0,0,0,0, SWP_NOSIZE|SWP_NOMOVE);
+#      check_z_order(hwnd_C, 0, hwnd_A, 0, FALSE);
+#      check_z_order(hwnd_B, hwnd_A, 0, 0, FALSE);
+# -todo_wine check_z_order(hwnd_A, hwnd_C, hwnd_B, 0, TRUE);
+# +    check_z_order(hwnd_A, hwnd_C, hwnd_B, 0, TRUE);
  
-     SetWindowPos(hwnd_A, HWND_NOTOPMOST, 0,0,0,0, SWP_NOSIZE|SWP_NOMOVE);
-     check_z_order(hwnd_C, 0, hwnd_A, 0, FALSE);
-     check_z_order(hwnd_B, hwnd_A, 0, 0, FALSE);
--todo_wine check_z_order(hwnd_A, hwnd_C, hwnd_B, 0, TRUE);
-+    check_z_order(hwnd_A, hwnd_C, hwnd_B, 0, TRUE);
+#      SetWindowPos(hwnd_A, HWND_NOTOPMOST, 0,0,0,0, SWP_NOSIZE|SWP_NOMOVE);
+#      check_z_order(hwnd_C, 0, hwnd_A, 0, FALSE);
+#      check_z_order(hwnd_B, hwnd_A, 0, 0, FALSE);
+# -todo_wine check_z_order(hwnd_A, hwnd_C, hwnd_B, 0, TRUE);
+# +    check_z_order(hwnd_A, hwnd_C, hwnd_B, 0, TRUE);
  
-     SetWindowPos(hwnd_A, HWND_BOTTOM, 0,0,0,0, SWP_NOSIZE|SWP_NOMOVE);
-     check_z_order(hwnd_C, hwnd_A, hwnd_B, 0, FALSE);
-     check_z_order(hwnd_B, hwnd_C, 0, 0, FALSE);
--todo_wine check_z_order(hwnd_A, 0, hwnd_C, 0, TRUE);
-+    check_z_order(hwnd_A, 0, hwnd_C, 0, TRUE);
+#      SetWindowPos(hwnd_A, HWND_BOTTOM, 0,0,0,0, SWP_NOSIZE|SWP_NOMOVE);
+#      check_z_order(hwnd_C, hwnd_A, hwnd_B, 0, FALSE);
+#      check_z_order(hwnd_B, hwnd_C, 0, 0, FALSE);
+# -todo_wine check_z_order(hwnd_A, 0, hwnd_C, 0, TRUE);
+# +    check_z_order(hwnd_A, 0, hwnd_C, 0, TRUE);
  
-     SetWindowPos(hwnd_C, HWND_TOPMOST, 0,0,0,0, SWP_NOSIZE|SWP_NOMOVE);
-     check_z_order(hwnd_C, hwnd_A, hwnd_B, 0, FALSE);
-     check_z_order(hwnd_B, hwnd_C, 0, 0, FALSE);
--todo_wine check_z_order(hwnd_A, 0, hwnd_C, 0, TRUE);
-+    check_z_order(hwnd_A, 0, hwnd_C, 0, TRUE);
+#      SetWindowPos(hwnd_C, HWND_TOPMOST, 0,0,0,0, SWP_NOSIZE|SWP_NOMOVE);
+#      check_z_order(hwnd_C, hwnd_A, hwnd_B, 0, FALSE);
+#      check_z_order(hwnd_B, hwnd_C, 0, 0, FALSE);
+# -todo_wine check_z_order(hwnd_A, 0, hwnd_C, 0, TRUE);
+# +    check_z_order(hwnd_A, 0, hwnd_C, 0, TRUE);
  
-     SetWindowPos(hwnd_C, HWND_TOP, 0,0,0,0, SWP_NOSIZE|SWP_NOMOVE);
-     check_z_order(hwnd_C, hwnd_B, 0, 0, FALSE);
-     check_z_order(hwnd_B, hwnd_A, hwnd_C, 0, FALSE);
--todo_wine check_z_order(hwnd_A, 0, hwnd_B, 0, TRUE);
-+    check_z_order(hwnd_A, 0, hwnd_B, 0, TRUE);
+#      SetWindowPos(hwnd_C, HWND_TOP, 0,0,0,0, SWP_NOSIZE|SWP_NOMOVE);
+#      check_z_order(hwnd_C, hwnd_B, 0, 0, FALSE);
+#      check_z_order(hwnd_B, hwnd_A, hwnd_C, 0, FALSE);
+# -todo_wine check_z_order(hwnd_A, 0, hwnd_B, 0, TRUE);
+# +    check_z_order(hwnd_A, 0, hwnd_B, 0, TRUE);
  
-     DestroyWindow(hwnd_A);
-     DestroyWindow(hwnd_B);
+#      DestroyWindow(hwnd_A);
+#      DestroyWindow(hwnd_B);
 diff --git a/server/window.c b/server/window.c
 index 11111111111..11111111111 100644
 --- a/server/window.c

@@ -1,0 +1,73 @@
+From 8a8d1dedcf1229abb0fd90b93a8beae7765af5fd Mon Sep 17 00:00:00 2001
+From: Sven Baars <sbaars@codeweavers.com>
+Date: Sat, 24 Feb 2024 21:11:17 +0100
+Subject: [PATCH] oleaut32: Use scientific notation if it prevents a loss of
+ accuracy.
+
+---
+ dlls/oleaut32/tests/vartype.c | 22 ++++++++++++++++------
+ dlls/oleaut32/vartype.c       | 14 +++++++++++---
+ 2 files changed, 27 insertions(+), 9 deletions(-)
+
+diff --git a/dlls/oleaut32/tests/vartype.c b/dlls/oleaut32/tests/vartype.c
+index 795446d0987..8516689d1bd 100644
+--- a/dlls/oleaut32/tests/vartype.c
++++ b/dlls/oleaut32/tests/vartype.c
+@@ -4679,12 +4679,22 @@ static void test_VarBstrFromR8(void)
+ {
+   static const struct r8_test tests_en[] =
+   {
+-    { 0.5, L"0.5" },
+-    { 0.05, L"0.05" },
+-    { 0.005, L"0.005" },
+-    { 0.0005, L"0.0005" },
+-    { 0.00005, L"0.00005" },
+-    { 0.000005, L"0.000005" },
++    { 0.56789, L"0.56789" },
++    { 5.6789e-2, L"0.056789" },
++    { 5.6789e-3, L"0.0056789" },
++    { 5.6789e-4, L"0.00056789" },
++    { 5.6789e-5, L"0.000056789" },
++    { 5.6789e-6, L"0.0000056789" },
++    { 5.6789e-7, L"0.00000056789" },
++    { 5.6789e-8, L"0.000000056789" },
++    { 5.6789e-9, L"0.0000000056789" },
++    { 5.6789e-10, L"0.00000000056789" },
++    { 5.6789e-11, L"0.000000000056789" },
++    { 5.6789e-12, L"5.6789E-12" },
++    { 5.6789e-13, L"5.6789E-13" },
++    { 5.6789e-14, L"5.6789E-14" },
++    { 5.6789e-15, L"5.6789E-15" },
++    { 5.6789e-16, L"5.6789E-16" },
+ 
+     { 1.0e8, L"100000000" },
+     { 1.0e12, L"1000000000000" },
+diff --git a/dlls/oleaut32/vartype.c b/dlls/oleaut32/vartype.c
+index d11fb41d1b3..747705f94e2 100644
+--- a/dlls/oleaut32/vartype.c
++++ b/dlls/oleaut32/vartype.c
+@@ -6550,10 +6550,18 @@ static HRESULT VARIANT_BstrFromReal(DOUBLE dblIn, LCID lcid, ULONG dwFlags,
+   if (!(locale = _create_locale(LC_ALL, "C"))) return E_OUTOFMEMORY;
+   len = _swprintf_l(buff, ARRAY_SIZE(buff), L"%.*G", locale, ndigits, dblIn);
+   e = wcschr(buff, 'E');
+-  if (e && labs(wcstol(e+1, NULL, 10)) < ndigits)
++  if (e)
+   {
+-    len = _swprintf_l(buff, ARRAY_SIZE(buff), L"%.*f", locale, ndigits, dblIn);
+-    while (len > 0 && (buff[len-1] == '0')) len--;
++      int extra_decimals;
++      WCHAR *dot;
++
++      dot = wcschr(buff, '.');
++      extra_decimals = dot ? e - dot - 2 : 0;
++      if (labs(wcstol(e+1, NULL, 10)) + extra_decimals < ndigits)
++      {
++          len = _swprintf_l(buff, ARRAY_SIZE(buff), L"%.*f", locale, ndigits, dblIn);
++          while (len > 0 && (buff[len-1] == '0')) len--;
++      }
+   }
+   buff[len] = 0;
+   _free_locale(locale);
+-- 
+GitLab
+

@@ -1,0 +1,32 @@
+From a445d35ced5c05b586f4e0f5c821926502cb2440 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?R=C3=A9mi=20Bernon?= <rbernon@codeweavers.com>
+Date: Thu, 27 Jan 2022 18:24:57 +0100
+Subject: [PATCH 0254/1306] user32: Send WM_NCACTIVATE on SetForegroundWindow
+ call.
+
+When window is already active but has lost foreground, as shown by
+concurrent SetForegroundWindow tests.
+
+CW-Bug-Id: #19612
+---
+ dlls/win32u/input.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/dlls/win32u/input.c b/dlls/win32u/input.c
+index f3451dcd57b..0336fb3da75 100644
+--- a/dlls/win32u/input.c
++++ b/dlls/win32u/input.c
+@@ -2091,6 +2091,10 @@ BOOL set_foreground_window( HWND hwnd, BOOL mouse )
+         else if (send_msg_new)  /* old window belongs to us but new one to other thread */
+             ret = set_active_window( 0, NULL, mouse, TRUE );
+ 
++        /* already active, set_active_window will do no nothing */
++        if (!send_msg_new && hwnd == get_active_window())
++            send_message( hwnd, WM_NCACTIVATE, TRUE, (LPARAM)hwnd );
++
+         if (send_msg_new)  /* new window belongs to other thread */
+             NtUserPostMessage( hwnd, WM_WINE_SETACTIVEWINDOW, (WPARAM)hwnd, 0 );
+         else  /* new window belongs to us */
+-- 
+2.43.2
+

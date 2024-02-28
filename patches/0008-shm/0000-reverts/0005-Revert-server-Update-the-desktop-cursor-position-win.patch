@@ -1,0 +1,27 @@
+From 55ae25b4d0bacdff142ab52701d8138d98fb73f8 Mon Sep 17 00:00:00 2001
+From: whrvt <william@horvath.blog>
+Date: Wed, 17 Jan 2024 04:45:45 -0800
+Subject: [PATCH 05/41] Revert "server: Update the desktop cursor position /
+ window on click."
+
+This reverts commit 82642e34e1835e1eb600c766a2f0f321310a4aa9.
+
+ 100.0% server/
+diff --git a/server/queue.c b/server/queue.c
+index 036a1a91908..48f244b49d7 100644
+--- a/server/queue.c
++++ b/server/queue.c
+@@ -1679,9 +1679,9 @@ static void queue_hardware_message( struct desktop *desktop, struct message *msg
+         break;
+     case QS_MOUSEMOVE:
+         prepend_cursor_history( msg->x, msg->y, msg->time, msg_data->info );
++        if (update_desktop_cursor_pos( desktop, msg->win, msg->x, msg->y )) always_queue = 1;
+         /* fallthrough */
+     case QS_MOUSEBUTTON:
+-        if (update_desktop_cursor_pos( desktop, msg->win, msg->x, msg->y )) always_queue = 1;
+         if (desktop->keystate[VK_LBUTTON] & 0x80)  msg->wparam |= MK_LBUTTON;
+         if (desktop->keystate[VK_MBUTTON] & 0x80)  msg->wparam |= MK_MBUTTON;
+         if (desktop->keystate[VK_RBUTTON] & 0x80)  msg->wparam |= MK_RBUTTON;
+-- 
+2.43.0
+

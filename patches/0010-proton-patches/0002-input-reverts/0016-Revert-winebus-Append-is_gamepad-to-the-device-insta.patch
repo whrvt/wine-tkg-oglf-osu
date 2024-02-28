@@ -1,0 +1,30 @@
+From 1fe0d711defa2fe879ab68a87491f1d1db1071db Mon Sep 17 00:00:00 2001
+From: whrvt <william@horvath.blog>
+Date: Wed, 28 Feb 2024 00:50:10 -0800
+Subject: [PATCH 5/5] Revert "winebus: Append is_gamepad to the device instance
+ id."
+
+This reverts commit ef316163931a63e1e9655aed25cf8fae0066aa36.
+---
+ dlls/winebus.sys/main.c | 5 +----
+ 1 file changed, 1 insertion(+), 4 deletions(-)
+
+diff --git a/dlls/winebus.sys/main.c b/dlls/winebus.sys/main.c
+index be635632e80..e5adfed8611 100644
+--- a/dlls/winebus.sys/main.c
++++ b/dlls/winebus.sys/main.c
+@@ -189,10 +189,7 @@ static WCHAR *get_instance_id(DEVICE_OBJECT *device)
+     WCHAR *dst;
+ 
+     if ((dst = ExAllocatePool(PagedPool, len * sizeof(WCHAR))))
+-    {
+-        swprintf(dst, len, L"%u&%s&%x&%u&%u", ext->desc.version, ext->desc.serialnumber,
+-                 ext->desc.uid, ext->index, ext->desc.is_gamepad);
+-    }
++        swprintf(dst, len, L"%i&%s&%x&%i", ext->desc.version, ext->desc.serialnumber, ext->desc.uid, ext->index);
+ 
+     return dst;
+ }
+-- 
+2.43.2
+

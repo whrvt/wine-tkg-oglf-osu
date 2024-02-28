@@ -1,0 +1,379 @@
+From a649ee28796a3e2e1bcb6ab40ec7df115249ce93 Mon Sep 17 00:00:00 2001
+From: whrvt <william@horvath.blog>
+Date: Mon, 26 Feb 2024 20:12:41 -0800
+Subject: [PATCH 2/6] Revert "server: Fix rawinput buffer sizes and alignment
+ on WoW64."
+
+This reverts commit 1664ad7d50110902f85af07564ef1505af9cc062.
+---
+ dlls/user32/tests/input.c      |   3 +
+ dlls/win32u/rawinput.c         | 103 +++++++++++++++++++++++++++++----
+ include/wine/server_protocol.h |   6 +-
+ server/protocol.def            |   4 +-
+ server/queue.c                 |  96 +++++++++++-------------------
+ server/request.h               |   4 +-
+ server/trace.c                 |   4 +-
+ 7 files changed, 138 insertions(+), 82 deletions(-)
+
+diff --git a/dlls/user32/tests/input.c b/dlls/user32/tests/input.c
+index a78ea3b7c43..18962707b76 100644
+--- a/dlls/user32/tests/input.c
++++ b/dlls/user32/tests/input.c
+@@ -1924,9 +1924,12 @@ static LRESULT CALLBACK rawinputbuffer_wndproc(HWND hwnd, UINT msg, WPARAM wpara
+             if (is_wow64)
+             {
+                 RAWINPUT64 *rawinput = (RAWINPUT64 *)(buffer + i * rawinput_size);
++                flaky_wine_if(is_wow64)
+                 ok_eq( RIM_TYPEKEYBOARD, rawinput->header.dwType, UINT, "%u" );
++                flaky_wine_if(is_wow64)
+                 ok_eq( rawinput_size, rawinput->header.dwSize, UINT, "%u" );
+                 ok_eq( wparam, rawinput->header.wParam, WPARAM, "%Iu" );
++                flaky_wine_if(is_wow64)
+                 ok_eq( i + 2, rawinput->data.keyboard.MakeCode, WPARAM, "%Iu" );
+             }
+             else
+diff --git a/dlls/win32u/rawinput.c b/dlls/win32u/rawinput.c
+index e4f43091b9b..524d1b820b2 100644
+--- a/dlls/win32u/rawinput.c
++++ b/dlls/win32u/rawinput.c
+@@ -42,6 +42,7 @@ WINE_DEFAULT_DEBUG_CHANNEL(rawinput);
+ 
+ #ifdef _WIN64
+ typedef RAWINPUTHEADER RAWINPUTHEADER64;
++typedef RAWINPUT RAWINPUT64;
+ #else
+ typedef struct
+ {
+@@ -50,6 +51,17 @@ typedef struct
+     ULONGLONG hDevice;
+     ULONGLONG wParam;
+ } RAWINPUTHEADER64;
++
++typedef struct
++{
++    RAWINPUTHEADER64 header;
++    union
++    {
++        RAWMOUSE    mouse;
++        RAWKEYBOARD keyboard;
++        RAWHID      hid;
++    } data;
++} RAWINPUT64;
+ #endif
+ 
+ static struct rawinput_thread_data *get_rawinput_thread_data(void)
+@@ -517,35 +529,104 @@ UINT WINAPI NtUserGetRawInputDeviceInfo( HANDLE handle, UINT command, void *data
+  */
+ UINT WINAPI NtUserGetRawInputBuffer( RAWINPUT *data, UINT *data_size, UINT header_size )
+ {
+-    UINT count;
++    unsigned int count = 0, remaining, rawinput_size, next_size, overhead;
++    struct rawinput_thread_data *thread_data;
++    struct hardware_msg_data *msg_data;
++    RAWINPUT *rawinput;
++    int i;
+ 
+-    TRACE( "data %p, data_size %p, header_size %u\n", data, data_size, header_size );
++    if (NtCurrentTeb()->WowTebOffset)
++        rawinput_size = sizeof(RAWINPUTHEADER64);
++    else
++        rawinput_size = sizeof(RAWINPUTHEADER);
++    overhead = rawinput_size - sizeof(RAWINPUTHEADER);
+ 
+     if (header_size != sizeof(RAWINPUTHEADER))
+     {
++        WARN( "Invalid structure size %u.\n", header_size );
+         RtlSetLastWin32Error( ERROR_INVALID_PARAMETER );
+-        return -1;
++        return ~0u;
+     }
+ 
+     if (!data_size)
+     {
+         RtlSetLastWin32Error( ERROR_INVALID_PARAMETER );
+-        return -1;
++        return ~0u;
+     }
+ 
+-    /* with old WOW64 mode we didn't go through the WOW64 thunks, patch the header size here */
+-    if (NtCurrentTeb()->WowTebOffset) header_size = sizeof(RAWINPUTHEADER64);
++    if (!data)
++    {
++        TRACE( "data %p, data_size %p (%u), header_size %u\n", data, data_size, *data_size, header_size );
++        SERVER_START_REQ( get_rawinput_buffer )
++        {
++            req->rawinput_size = rawinput_size;
++            req->buffer_size = 0;
++            if (wine_server_call( req )) return ~0u;
++            *data_size = reply->next_size;
++        }
++        SERVER_END_REQ;
++        return 0;
++    }
+ 
++    if (!(thread_data = get_rawinput_thread_data())) return ~0u;
++    rawinput = thread_data->buffer;
++
++    /* first RAWINPUT block in the buffer is used for WM_INPUT message data */
++    msg_data = (struct hardware_msg_data *)NEXTRAWINPUTBLOCK(rawinput);
+     SERVER_START_REQ( get_rawinput_buffer )
+     {
+-        req->header_size = header_size;
+-        if ((req->read_data = !!data)) wine_server_set_reply( req, data, *data_size );
+-        if (!wine_server_call_err( req )) count = reply->count;
+-        else count = -1;
+-        *data_size = reply->next_size;
++        req->rawinput_size = rawinput_size;
++        req->buffer_size = *data_size;
++        wine_server_set_reply( req, msg_data, RAWINPUT_BUFFER_SIZE - rawinput->header.dwSize );
++        if (wine_server_call( req )) return ~0u;
++        next_size = reply->next_size;
++        count = reply->count;
+     }
+     SERVER_END_REQ;
+ 
++    remaining = *data_size;
++    for (i = 0; i < count; ++i)
++    {
++        data->header.dwSize = remaining;
++        if (!rawinput_from_hardware_message( data, msg_data )) break;
++        if (overhead)
++        {
++            /* Under WoW64, GetRawInputBuffer always gives 64-bit RAWINPUT structs. */
++            RAWINPUT64 *ri64 = (RAWINPUT64 *)data;
++            memmove( (char *)&data->data + overhead, &data->data,
++                     data->header.dwSize - sizeof(RAWINPUTHEADER) );
++            ri64->header.dwSize += overhead;
++
++            /* Need to copy wParam before hDevice so it's not overwritten. */
++            ri64->header.wParam = data->header.wParam;
++#ifdef _WIN64
++            ri64->header.hDevice = data->header.hDevice;
++#else
++            ri64->header.hDevice = HandleToULong(data->header.hDevice);
++#endif
++        }
++        remaining -= data->header.dwSize;
++        data = NEXTRAWINPUTBLOCK(data);
++        msg_data = (struct hardware_msg_data *)((char *)msg_data + msg_data->size);
++    }
++
++    if (!next_size)
++    {
++        if (!count)
++            *data_size = 0;
++        else
++            next_size = rawinput_size;
++    }
++
++    if (next_size && *data_size <= next_size)
++    {
++        RtlSetLastWin32Error( ERROR_INSUFFICIENT_BUFFER );
++        *data_size = next_size;
++        count = ~0u;
++    }
++
++    TRACE( "data %p, data_size %p (%u), header_size %u, count %u\n",
++           data, data_size, *data_size, header_size, count );
+     return count;
+ }
+ 
+diff --git a/include/wine/server_protocol.h b/include/wine/server_protocol.h
+index 80290302405..00b2ebdf971 100644
+--- a/include/wine/server_protocol.h
++++ b/include/wine/server_protocol.h
+@@ -5438,8 +5438,8 @@ struct get_cursor_history_reply
+ struct get_rawinput_buffer_request
+ {
+     struct request_header __header;
+-    data_size_t header_size;
+-    int         read_data;
++    data_size_t rawinput_size;
++    data_size_t buffer_size;
+     char __pad_20[4];
+ };
+ struct get_rawinput_buffer_reply
+# @@ -6492,7 +6492,7 @@ union generic_reply
+ 
+#  /* ### protocol_version begin ### */
+ 
+# -#define SERVER_PROTOCOL_VERSION 793
+# +#define SERVER_PROTOCOL_VERSION 792
+ 
+#  /* ### protocol_version end ### */
+ 
+diff --git a/server/protocol.def b/server/protocol.def
+index 8b51618ebe0..a88e1534d24 100644
+--- a/server/protocol.def
++++ b/server/protocol.def
+@@ -3768,8 +3768,8 @@ struct handle_info
+ 
+ /* Batch read rawinput message data */
+ @REQ(get_rawinput_buffer)
+-    data_size_t header_size;   /* size of RAWINPUTHEADER structure */
+-    int         read_data;     /* read the rawinput buffer data */
++    data_size_t rawinput_size; /* size of RAWINPUT structure */
++    data_size_t buffer_size;   /* size of output buffer */
+ @REPLY
+     data_size_t next_size; /* minimum size to get next message data */
+     unsigned int count;
+diff --git a/server/queue.c b/server/queue.c
+index 6f38227aa84..e3aa0f685ca 100644
+--- a/server/queue.c
++++ b/server/queue.c
+@@ -1866,6 +1866,7 @@ static void rawkeyboard_init( struct rawinput *rawinput, RAWKEYBOARD *keyboard,
+     case VK_RCONTROL:
+         keyboard->VKey = VK_CONTROL;
+         break;
++
+     case VK_LMENU:
+     case VK_RMENU:
+         keyboard->VKey = VK_MENU;
+@@ -3540,81 +3541,52 @@ DECL_HANDLER(get_cursor_history)
+ 
+ DECL_HANDLER(get_rawinput_buffer)
+ {
+-    const size_t align = is_machine_64bit( current->process->machine ) ? 7 : 3;
+-    data_size_t buffer_size = get_reply_max_size() & ~align;
+     struct thread_input *input = current->queue->input;
+-    struct message *msg, *next_msg;
+-    int count = 0;
+-    char *buffer;
++    data_size_t size = 0, next_size = 0, pos = 0;
++    struct list *ptr;
++    char *buf, *tmp;
++    int count = 0, buf_size = 16 * sizeof(struct hardware_msg_data);
+ 
+-    if (req->header_size != sizeof(RAWINPUTHEADER))
+-    {
+-        set_error( STATUS_INVALID_PARAMETER );
+-        return;
+-    }
++    if (!req->buffer_size) buf = NULL;
++    else if (!(buf = mem_alloc( buf_size ))) return;
+ 
+-    if (!req->read_data)
+-    {
+-        LIST_FOR_EACH_ENTRY( msg, &input->msg_list, struct message, entry )
+-        {
+-            if (msg->msg == WM_INPUT)
+-            {
+-                struct hardware_msg_data *msg_data = msg->data;
+-                data_size_t size = msg_data->size - sizeof(*msg_data);
+-                reply->next_size = sizeof(RAWINPUTHEADER) + size;
+-                break;
+-            }
+-        }
+-
+-    }
+-    else if ((buffer = mem_alloc( buffer_size )))
++    ptr = list_head( &input->msg_list );
++    while (ptr)
+     {
+-        size_t total_size = 0, next_size = 0;
++        struct message *msg = LIST_ENTRY( ptr, struct message, entry );
++        struct hardware_msg_data *data = msg->data;
++        data_size_t extra_size = data->size - sizeof(*data);
+ 
+-        reply->next_size = get_reply_max_size();
++        ptr = list_next( &input->msg_list, ptr );
++        if (msg->msg != WM_INPUT) continue;
+ 
+-        LIST_FOR_EACH_ENTRY_SAFE( msg, next_msg, &input->msg_list, struct message, entry )
++        next_size = req->rawinput_size + extra_size;
++        if (size + next_size > req->buffer_size) break;
++        if (pos + data->size > get_reply_max_size()) break;
++        if (pos + data->size > buf_size)
+         {
+-            if (msg->msg == WM_INPUT)
++            buf_size += buf_size / 2 + extra_size;
++            if (!(tmp = realloc( buf, buf_size )))
+             {
+-                RAWINPUT *rawinput = (RAWINPUT *)(buffer + total_size);
+-                struct hardware_msg_data *msg_data = msg->data;
+-                data_size_t data_size = msg_data->size - sizeof(*msg_data);
+-
+-                if (total_size + sizeof(RAWINPUTHEADER) + data_size > buffer_size)
+-                {
+-                    next_size = sizeof(RAWINPUTHEADER) + data_size;
+-                    break;
+-                }
+-
+-                rawinput->header.dwSize  = sizeof(RAWINPUTHEADER) + data_size;
+-                rawinput->header.dwType  = msg_data->rawinput.type;
+-                rawinput->header.hDevice = UlongToHandle(msg_data->rawinput.device);
+-                rawinput->header.wParam  = msg_data->rawinput.wparam;
+-                memcpy( &rawinput->header + 1, msg_data + 1, data_size );
+-
+-                total_size += (rawinput->header.dwSize + align) & ~align;
+-                list_remove( &msg->entry );
+-                free_message( msg );
+-                count++;
++                free( buf );
++                set_error( STATUS_NO_MEMORY );
++                return;
+             }
++            buf = tmp;
+         }
+ 
+-        if (!next_size)
+-        {
+-            if (count) next_size = sizeof(RAWINPUT);
+-            else reply->next_size = 0;
+-        }
+-
+-        if (next_size && get_reply_max_size() <= next_size)
+-        {
+-            set_error( STATUS_BUFFER_TOO_SMALL );
+-            reply->next_size = next_size;
+-        }
++        memcpy( buf + pos, data, data->size );
++        list_remove( &msg->entry );
++        free_message( msg );
+ 
+-        reply->count = count;
+-        set_reply_data_ptr( buffer, total_size );
++        size += next_size;
++        pos += sizeof(*data) + extra_size;
++        count++;
+     }
++
++    reply->next_size = next_size;
++    reply->count = count;
++    set_reply_data_ptr( buf, pos );
+ }
+ 
+ DECL_HANDLER(update_rawinput_devices)
+diff --git a/server/request.h b/server/request.h
+index cff7b5e7979..e37fa5a44fa 100644
+--- a/server/request.h
++++ b/server/request.h
+@@ -2285,8 +2285,8 @@ C_ASSERT( FIELD_OFFSET(struct set_cursor_reply, last_change) == 48 );
+ C_ASSERT( sizeof(struct set_cursor_reply) == 56 );
+ C_ASSERT( sizeof(struct get_cursor_history_request) == 16 );
+ C_ASSERT( sizeof(struct get_cursor_history_reply) == 8 );
+-C_ASSERT( FIELD_OFFSET(struct get_rawinput_buffer_request, header_size) == 12 );
+-C_ASSERT( FIELD_OFFSET(struct get_rawinput_buffer_request, read_data) == 16 );
++C_ASSERT( FIELD_OFFSET(struct get_rawinput_buffer_request, rawinput_size) == 12 );
++C_ASSERT( FIELD_OFFSET(struct get_rawinput_buffer_request, buffer_size) == 16 );
+ C_ASSERT( sizeof(struct get_rawinput_buffer_request) == 24 );
+ C_ASSERT( FIELD_OFFSET(struct get_rawinput_buffer_reply, next_size) == 8 );
+ C_ASSERT( FIELD_OFFSET(struct get_rawinput_buffer_reply, count) == 12 );
+diff --git a/server/trace.c b/server/trace.c
+index f06cf29591f..fdd192e1749 100644
+--- a/server/trace.c
++++ b/server/trace.c
+@@ -4482,8 +4482,8 @@ static void dump_get_cursor_history_reply( const struct get_cursor_history_reply
+ 
+ static void dump_get_rawinput_buffer_request( const struct get_rawinput_buffer_request *req )
+ {
+-    fprintf( stderr, " header_size=%u", req->header_size );
+-    fprintf( stderr, ", read_data=%d", req->read_data );
++    fprintf( stderr, " rawinput_size=%u", req->rawinput_size );
++    fprintf( stderr, ", buffer_size=%u", req->buffer_size );
+ }
+ 
+ static void dump_get_rawinput_buffer_reply( const struct get_rawinput_buffer_reply *req )
+-- 
+2.43.2
+

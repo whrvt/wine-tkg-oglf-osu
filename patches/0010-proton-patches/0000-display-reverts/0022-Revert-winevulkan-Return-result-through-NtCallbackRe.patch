@@ -1,0 +1,84 @@
+From c44020eb190df75dfbaf556d69a0c7492bf0b74a Mon Sep 17 00:00:00 2001
+From: whrvt <william@horvath.blog>
+Date: Tue, 27 Feb 2024 14:54:28 -0800
+Subject: [PATCH 5/5] Revert "winevulkan: Return result through
+ NtCallbackReturn for the debug callbacks."
+
+This reverts commit 643538a836f33b4996730cf05dc2af77667d6150.
+---
+ dlls/winevulkan/loader.c | 14 +++++---------
+ dlls/winevulkan/vulkan.c | 13 +++++++------
+ 2 files changed, 12 insertions(+), 15 deletions(-)
+
+diff --git a/dlls/winevulkan/loader.c b/dlls/winevulkan/loader.c
+index bd49b08057d..75a092a5a53 100644
+--- a/dlls/winevulkan/loader.c
++++ b/dlls/winevulkan/loader.c
+@@ -602,19 +602,15 @@ void WINAPI vkFreeCommandBuffers(VkDevice device, VkCommandPool cmd_pool, uint32
+     }
+ }
+ 
+-static NTSTATUS WINAPI call_vulkan_debug_report_callback( void *args, ULONG size )
++static BOOL WINAPI call_vulkan_debug_report_callback( struct wine_vk_debug_report_params *params, ULONG size )
+ {
+-    struct wine_vk_debug_report_params *params = args;
+-    VkBool32 ret = params->user_callback(params->flags, params->object_type, params->object_handle, params->location,
+-                                         params->code, params->layer_prefix, params->message, params->user_data);
+-    return NtCallbackReturn( &ret, sizeof(ret), STATUS_SUCCESS );
++    return params->user_callback(params->flags, params->object_type, params->object_handle, params->location,
++                                 params->code, params->layer_prefix, params->message, params->user_data);
+ }
+ 
+-static NTSTATUS WINAPI call_vulkan_debug_utils_callback( void *args, ULONG size )
++static BOOL WINAPI call_vulkan_debug_utils_callback( struct wine_vk_debug_utils_params *params, ULONG size )
+ {
+-    struct wine_vk_debug_utils_params *params = args;
+-    VkBool32 ret = params->user_callback(params->severity, params->message_types, &params->data, params->user_data);
+-    return NtCallbackReturn( &ret, sizeof(ret), STATUS_SUCCESS );
++    return params->user_callback(params->severity, params->message_types, &params->data, params->user_data);
+ }
+ 
+ BOOL WINAPI DllMain(HINSTANCE hinst, DWORD reason, void *reserved)
+diff --git a/dlls/winevulkan/vulkan.c b/dlls/winevulkan/vulkan.c
+index c999363e268..2691624db66 100644
+--- a/dlls/winevulkan/vulkan.c
++++ b/dlls/winevulkan/vulkan.c
+@@ -118,6 +118,7 @@ static VkBool32 debug_utils_callback_conversion(VkDebugUtilsMessageSeverityFlagB
+     struct wine_debug_utils_messenger *object;
+     void *ret_ptr;
+     ULONG ret_len;
++    VkBool32 result;
+     unsigned int i;
+ 
+     TRACE("%i, %u, %p, %p\n", severity, message_types, callback_data, user_data);
+@@ -165,11 +166,12 @@ static VkBool32 debug_utils_callback_conversion(VkDebugUtilsMessageSeverityFlagB
+     params.data.pObjects = object_name_infos;
+ 
+     /* applications should always return VK_FALSE */
+-    KeUserModeCallback( NtUserCallVulkanDebugUtilsCallback, &params, sizeof(params), &ret_ptr, &ret_len );
++    result = KeUserModeCallback( NtUserCallVulkanDebugUtilsCallback, &params, sizeof(params),
++                                 &ret_ptr, &ret_len );
+ 
+     free(object_name_infos);
+-    if (ret_len == sizeof(VkBool32)) return *(VkBool32 *)ret_ptr;
+-    return VK_FALSE;
++
++    return result;
+ }
+ 
+ static VkBool32 debug_report_callback_conversion(VkDebugReportFlagsEXT flags, VkDebugReportObjectTypeEXT object_type,
+@@ -205,9 +207,8 @@ static VkBool32 debug_report_callback_conversion(VkDebugReportFlagsEXT flags, Vk
+     if (!params.object_handle)
+         params.object_type = VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT;
+ 
+-    KeUserModeCallback( NtUserCallVulkanDebugReportCallback, &params, sizeof(params), &ret_ptr, &ret_len );
+-    if (ret_len == sizeof(VkBool32)) return *(VkBool32 *)ret_ptr;
+-    return VK_FALSE;
++    return KeUserModeCallback( NtUserCallVulkanDebugReportCallback, &params, sizeof(params),
++                               &ret_ptr, &ret_len );
+ }
+ 
+ static void wine_vk_physical_device_free(struct wine_phys_dev *phys_dev)
+-- 
+2.43.2
+

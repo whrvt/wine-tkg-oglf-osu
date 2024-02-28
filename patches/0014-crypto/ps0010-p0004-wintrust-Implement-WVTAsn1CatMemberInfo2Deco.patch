@@ -122,34 +122,34 @@ index 11111111111..11111111111 100644
      WINTRUST_REGISTEROID(SPC_SP_OPUS_INFO_OBJID, SpcSpOpusInfoEncode, SpcSpOpusInfoDecode);
      WINTRUST_REGISTEROID(SPC_SP_OPUS_INFO_STRUCT, SpcSpOpusInfoEncode,  SpcSpOpusInfoDecode);
  
-diff --git a/dlls/wintrust/tests/asn.c b/dlls/wintrust/tests/asn.c
-index 11111111111..11111111111 100644
---- a/dlls/wintrust/tests/asn.c
-+++ b/dlls/wintrust/tests/asn.c
-@@ -968,7 +968,6 @@ static void test_decodeCatMemberInfo2(void)
-     ret = pCryptDecodeObjectEx(X509_ASN_ENCODING, CAT_MEMBERINFO2_STRUCT,
-      emptyCatMemberInfo2, sizeof(emptyCatMemberInfo2),
-      CRYPT_DECODE_ALLOC_FLAG, NULL, &buf, &size);
--    todo_wine
-     ok(ret, "CryptDecodeObjectEx failed: %08lx\n", GetLastError());
-     if (ret)
-     {
-@@ -982,7 +981,6 @@ static void test_decodeCatMemberInfo2(void)
-     ret = pCryptDecodeObjectEx(X509_ASN_ENCODING, CAT_MEMBERINFO2_STRUCT,
-      catMemberInfo2WithGuid, sizeof(catMemberInfo2WithGuid),
-      CRYPT_DECODE_ALLOC_FLAG, NULL, &buf, &size);
--    todo_wine
-     ok(ret, "CryptDecodeObjectEx failed: %08lx\n", GetLastError());
-     if (ret)
-     {
-@@ -996,7 +994,6 @@ static void test_decodeCatMemberInfo2(void)
-     ret = pCryptDecodeObjectEx(X509_ASN_ENCODING, CAT_MEMBERINFO2_STRUCT,
-      catMemberInfo2WithSpecialGuid, sizeof(catMemberInfo2WithSpecialGuid),
-      CRYPT_DECODE_ALLOC_FLAG, NULL, &buf, &size);
--    todo_wine
-     ok(ret, "CryptDecodeObjectEx failed: %08lx\n", GetLastError());
-     if (ret)
-     {
+# diff --git a/dlls/wintrust/tests/asn.c b/dlls/wintrust/tests/asn.c
+# index 11111111111..11111111111 100644
+# --- a/dlls/wintrust/tests/asn.c
+# +++ b/dlls/wintrust/tests/asn.c
+# @@ -968,7 +968,6 @@ static void test_decodeCatMemberInfo2(void)
+#      ret = pCryptDecodeObjectEx(X509_ASN_ENCODING, CAT_MEMBERINFO2_STRUCT,
+#       emptyCatMemberInfo2, sizeof(emptyCatMemberInfo2),
+#       CRYPT_DECODE_ALLOC_FLAG, NULL, &buf, &size);
+# -    todo_wine
+#      ok(ret, "CryptDecodeObjectEx failed: %08lx\n", GetLastError());
+#      if (ret)
+#      {
+# @@ -982,7 +981,6 @@ static void test_decodeCatMemberInfo2(void)
+#      ret = pCryptDecodeObjectEx(X509_ASN_ENCODING, CAT_MEMBERINFO2_STRUCT,
+#       catMemberInfo2WithGuid, sizeof(catMemberInfo2WithGuid),
+#       CRYPT_DECODE_ALLOC_FLAG, NULL, &buf, &size);
+# -    todo_wine
+#      ok(ret, "CryptDecodeObjectEx failed: %08lx\n", GetLastError());
+#      if (ret)
+#      {
+# @@ -996,7 +994,6 @@ static void test_decodeCatMemberInfo2(void)
+#      ret = pCryptDecodeObjectEx(X509_ASN_ENCODING, CAT_MEMBERINFO2_STRUCT,
+#       catMemberInfo2WithSpecialGuid, sizeof(catMemberInfo2WithSpecialGuid),
+#       CRYPT_DECODE_ALLOC_FLAG, NULL, &buf, &size);
+# -    todo_wine
+#      ok(ret, "CryptDecodeObjectEx failed: %08lx\n", GetLastError());
+#      if (ret)
+#      {
 diff --git a/dlls/wintrust/wintrust.spec b/dlls/wintrust/wintrust.spec
 index 11111111111..11111111111 100644
 --- a/dlls/wintrust/wintrust.spec

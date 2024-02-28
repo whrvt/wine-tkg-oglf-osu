@@ -1,0 +1,290 @@
+From 92c382b16fa851d469f1480e9560de4c72080be2 Mon Sep 17 00:00:00 2001
+From: whrvt <william@horvath.blog>
+Date: Sun, 21 Jan 2024 11:35:26 -0800
+Subject: [PATCH 3/3] Revert "kernel32: Implement
+ GetProcessInformation(ProcessMachineTypeInfo)."
+
+This reverts commit f27b62206cf3ee11e933d46a62ed56828070eb3f.
+---
+ dlls/kernel32/kernel32.spec     |  1 -
+ dlls/kernel32/tests/process.c   | 57 ---------------------------------
+ dlls/kernelbase/kernelbase.spec |  2 +-
+ dlls/kernelbase/process.c       | 51 -----------------------------
+ dlls/win32u/freetype.c          |  2 --
+ dlls/winemac.drv/macdrv_cocoa.h |  2 --
+ dlls/winspool.drv/cups.c        |  2 --
+ include/winbase.h               | 15 ---------
+ 8 files changed, 1 insertion(+), 131 deletions(-)
+
+diff --git a/dlls/kernel32/kernel32.spec b/dlls/kernel32/kernel32.spec
+index bb9c8fbfe0e..4815689a258 100644
+--- a/dlls/kernel32/kernel32.spec
++++ b/dlls/kernel32/kernel32.spec
+@@ -798,7 +798,6 @@
+ @ stdcall -import GetProcessHeaps(long ptr) RtlGetProcessHeaps
+ @ stdcall -import GetProcessId(long)
+ @ stdcall -import GetProcessIdOfThread(long)
+-@ stdcall GetProcessInformation(long long ptr long)
+ @ stdcall GetProcessIoCounters(long ptr)
+ @ stdcall -import GetProcessMitigationPolicy(long long ptr long)
+ @ stdcall -import GetProcessPreferredUILanguages(long ptr ptr ptr)
+diff --git a/dlls/kernel32/tests/process.c b/dlls/kernel32/tests/process.c
+index 5f5327245fc..d59074b988c 100644
+--- a/dlls/kernel32/tests/process.c
++++ b/dlls/kernel32/tests/process.c
+@@ -96,7 +96,6 @@ static BOOL   (WINAPI *pUpdateProcThreadAttribute)(struct _PROC_THREAD_ATTRIBUTE
+ static void   (WINAPI *pDeleteProcThreadAttributeList)(struct _PROC_THREAD_ATTRIBUTE_LIST*);
+ static DWORD  (WINAPI *pGetActiveProcessorCount)(WORD);
+ static DWORD  (WINAPI *pGetMaximumProcessorCount)(WORD);
+-static BOOL   (WINAPI *pGetProcessInformation)(HANDLE,PROCESS_INFORMATION_CLASS,void*,DWORD);
+ 
+ /* ############################### */
+ static char     base[MAX_PATH];
+@@ -283,7 +282,6 @@ static BOOL init(void)
+     pDeleteProcThreadAttributeList = (void *)GetProcAddress(hkernel32, "DeleteProcThreadAttributeList");
+     pGetActiveProcessorCount = (void *)GetProcAddress(hkernel32, "GetActiveProcessorCount");
+     pGetMaximumProcessorCount = (void *)GetProcAddress(hkernel32, "GetMaximumProcessorCount");
+-    pGetProcessInformation = (void *)GetProcAddress(hkernel32, "GetProcessInformation");
+ 
+     return TRUE;
+ }
+@@ -5281,60 +5279,6 @@ static void test_startupinfo( void )
+     params->dwFlags ^= STARTF_USESTDHANDLES;
+ }
+ 
+-static void test_GetProcessInformation(void)
+-{
+-    SYSTEM_SUPPORTED_PROCESSOR_ARCHITECTURES_INFORMATION machines[8];
+-    PROCESS_MACHINE_INFORMATION mi;
+-    NTSTATUS status;
+-    HANDLE process;
+-    unsigned int i;
+-    BOOL ret;
+-
+-    if (!pGetProcessInformation)
+-    {
+-        win_skip("GetProcessInformation() is not available.\n");
+-        return;
+-    }
+-
+-    ret = pGetProcessInformation(GetCurrentProcess(), ProcessMachineTypeInfo, NULL, 0);
+-    ok(!ret, "Unexpected return value %d.\n", ret);
+-    ok(GetLastError() == ERROR_BAD_LENGTH, "Unexpected error %ld.\n", GetLastError());
+-    ret = pGetProcessInformation(GetCurrentProcess(), ProcessMachineTypeInfo, &mi, 0);
+-    ok(!ret, "Unexpected return value %d.\n", ret);
+-    ok(GetLastError() == ERROR_BAD_LENGTH, "Unexpected error %ld.\n", GetLastError());
+-    ret = pGetProcessInformation(GetCurrentProcess(), ProcessMachineTypeInfo, &mi, sizeof(mi) - 1);
+-    ok(!ret, "Unexpected return value %d.\n", ret);
+-    ok(GetLastError() == ERROR_BAD_LENGTH, "Unexpected error %ld.\n", GetLastError());
+-    ret = pGetProcessInformation(GetCurrentProcess(), ProcessMachineTypeInfo, &mi, sizeof(mi) + 1);
+-    ok(!ret, "Unexpected return value %d.\n", ret);
+-    ok(GetLastError() == ERROR_BAD_LENGTH, "Unexpected error %ld.\n", GetLastError());
+-
+-    ret = pGetProcessInformation(GetCurrentProcess(), ProcessMachineTypeInfo, &mi, sizeof(mi));
+-    ok(ret, "Unexpected return value %d.\n", ret);
+-
+-    process = GetCurrentProcess();
+-    status = NtQuerySystemInformationEx( SystemSupportedProcessorArchitectures, &process, sizeof(process),
+-            machines, sizeof(machines), NULL );
+-    ok(!status, "Failed to get architectures information.\n");
+-    for (i = 0; machines[i].Machine; i++)
+-    {
+-        if (machines[i].Process)
+-        {
+-            ok(mi.ProcessMachine == machines[i].Machine, "Unexpected process machine %#x.\n", mi.ProcessMachine);
+-            ok(!mi.Res0, "Unexpected process machine %#x.\n", mi.ProcessMachine);
+-            ok(!!(mi.MachineAttributes & UserEnabled) == machines[i].UserMode, "Unexpected attributes %#x.\n",
+-                    mi.MachineAttributes);
+-            ok(!!(mi.MachineAttributes & KernelEnabled) == machines[i].KernelMode, "Unexpected attributes %#x.\n",
+-                    mi.MachineAttributes);
+-            ok(!!(mi.MachineAttributes & Wow64Container) == machines[i].WoW64Container, "Unexpected attributes %#x.\n",
+-                    mi.MachineAttributes);
+-            ok(!(mi.MachineAttributes & ~(UserEnabled | KernelEnabled | Wow64Container)), "Unexpected attributes %#x.\n",
+-                    mi.MachineAttributes);
+-            break;
+-        }
+-    }
+-}
+-
+ START_TEST(process)
+ {
+     HANDLE job, hproc, h, h2;
+@@ -5464,7 +5408,6 @@ START_TEST(process)
+     test_dead_process();
+     test_services_exe();
+     test_startupinfo();
+-    test_GetProcessInformation();
+ 
+     /* things that can be tested:
+      *  lookup:         check the way program to be executed is searched
+diff --git a/dlls/kernelbase/kernelbase.spec b/dlls/kernelbase/kernelbase.spec
+index ffb153a46ee..e85f2b67d74 100644
+--- a/dlls/kernelbase/kernelbase.spec
++++ b/dlls/kernelbase/kernelbase.spec
+@@ -660,7 +660,7 @@
+ @ stdcall GetProcessIdOfThread(long)
+ @ stdcall GetProcessImageFileNameA(long ptr long)
+ @ stdcall GetProcessImageFileNameW(long ptr long)
+-@ stdcall GetProcessInformation(long long ptr long)
++# @ stub GetProcessInformation
+ @ stdcall GetProcessMemoryInfo(long ptr long)
+ @ stdcall GetProcessMitigationPolicy(long long ptr long)
+ @ stdcall GetProcessPreferredUILanguages(long ptr ptr ptr)
+diff --git a/dlls/kernelbase/process.c b/dlls/kernelbase/process.c
+index 1aeb8f55257..0c5104e7452 100644
+--- a/dlls/kernelbase/process.c
++++ b/dlls/kernelbase/process.c
+@@ -1038,57 +1038,6 @@ BOOL WINAPI DECLSPEC_HOTPATCH IsWow64Process( HANDLE process, PBOOL wow64 )
+     return set_ntstatus( status );
+ }
+ 
+-/*********************************************************************
+- *           GetProcessInformation   (kernelbase.@)
+- */
+-BOOL WINAPI GetProcessInformation( HANDLE process, PROCESS_INFORMATION_CLASS info_class, void *data, DWORD size )
+-{
+-    switch (info_class)
+-    {
+-        case ProcessMachineTypeInfo:
+-        {
+-            PROCESS_MACHINE_INFORMATION *mi = data;
+-            SYSTEM_SUPPORTED_PROCESSOR_ARCHITECTURES_INFORMATION machines[8];
+-            NTSTATUS status;
+-            ULONG i;
+-
+-            if (size != sizeof(*mi))
+-            {
+-                SetLastError(ERROR_BAD_LENGTH);
+-                return FALSE;
+-            }
+-
+-            status = NtQuerySystemInformationEx( SystemSupportedProcessorArchitectures, &process, sizeof(process),
+-                    machines, sizeof(machines), NULL );
+-            if (status) return set_ntstatus( status );
+-
+-            for (i = 0; machines[i].Machine; i++)
+-            {
+-                if (machines[i].Process)
+-                {
+-                    mi->ProcessMachine = machines[i].Machine;
+-                    mi->Res0 = 0;
+-                    mi->MachineAttributes = 0;
+-                    if (machines[i].KernelMode)
+-                        mi->MachineAttributes |= KernelEnabled;
+-                    if (machines[i].UserMode)
+-                        mi->MachineAttributes |= UserEnabled;
+-                    if (machines[i].WoW64Container)
+-                        mi->MachineAttributes |= Wow64Container;
+-
+-                    return TRUE;
+-                }
+-            }
+-
+-            break;
+-        }
+-        default:
+-            FIXME("Unsupported information class %d.\n", info_class);
+-    }
+-
+-    return FALSE;
+-}
+-
+ 
+ /*********************************************************************
+  *           OpenProcess   (kernelbase.@)
+diff --git a/dlls/win32u/freetype.c b/dlls/win32u/freetype.c
+index 701e15c110d..6043c66bc53 100644
+--- a/dlls/win32u/freetype.c
++++ b/dlls/win32u/freetype.c
+@@ -46,7 +46,6 @@
+ #define CompareString __carbon_CompareString
+ #define GetCurrentThread __carbon_GetCurrentThread
+ #define GetCurrentProcess __carbon_GetCurrentProcess
+-#define GetProcessInformation __carbon_GetProcessInformation
+ #define AnimatePalette __carbon_AnimatePalette
+ #define DeleteMenu __carbon_DeleteMenu
+ #define DrawMenu __carbon_DrawMenu
+@@ -73,7 +72,6 @@
+ #undef GetCurrentThread
+ #undef _CDECL
+ #undef GetCurrentProcess
+-#undef GetProcessInformation
+ #undef AnimatePalette
+ #undef CheckMenuItem
+ #undef DeleteMenu
+diff --git a/dlls/winemac.drv/macdrv_cocoa.h b/dlls/winemac.drv/macdrv_cocoa.h
+index 3a977f68955..6eff82ca122 100644
+--- a/dlls/winemac.drv/macdrv_cocoa.h
++++ b/dlls/winemac.drv/macdrv_cocoa.h
+@@ -30,7 +30,6 @@
+ 
+ #define GetCurrentProcess MacGetCurrentProcess
+ #define GetCurrentThread MacGetCurrentThread
+-#define GetProcessInformation MacGetProcessInformation
+ #define LoadResource MacLoadResource
+ #define AnimatePalette MacAnimatePalette
+ #define EqualRgn MacEqualRgn
+@@ -60,7 +59,6 @@
+ 
+ #undef GetCurrentProcess
+ #undef GetCurrentThread
+-#undef GetProcessInformation
+ #undef LoadResource
+ #undef AnimatePalette
+ #undef EqualRgn
+diff --git a/dlls/winspool.drv/cups.c b/dlls/winspool.drv/cups.c
+index 8cdc193d33a..6ad270709cc 100644
+--- a/dlls/winspool.drv/cups.c
++++ b/dlls/winspool.drv/cups.c
+@@ -44,7 +44,6 @@
+ #ifdef __APPLE__
+ #define GetCurrentProcess GetCurrentProcess_Mac
+ #define GetCurrentThread GetCurrentThread_Mac
+-#define GetProcessInformation GetProcessInformation_Mac
+ #define LoadResource LoadResource_Mac
+ #define AnimatePalette AnimatePalette_Mac
+ #define EqualRgn EqualRgn_Mac
+@@ -72,7 +71,6 @@
+ #include <ApplicationServices/ApplicationServices.h>
+ #undef GetCurrentProcess
+ #undef GetCurrentThread
+-#undef GetProcessInformation
+ #undef LoadResource
+ #undef AnimatePalette
+ #undef EqualRgn
+diff --git a/include/winbase.h b/include/winbase.h
+index fe143cc7a61..16e449f7c2d 100644
+--- a/include/winbase.h
++++ b/include/winbase.h
+@@ -1771,20 +1771,6 @@ typedef struct _WIN32_MEMORY_RANGE_ENTRY
+     SIZE_T NumberOfBytes;
+ } WIN32_MEMORY_RANGE_ENTRY, *PWIN32_MEMORY_RANGE_ENTRY;
+ 
+-typedef enum _MACHINE_ATTRIBUTES
+-{
+-    UserEnabled    = 0x00000001,
+-    KernelEnabled  = 0x00000002,
+-    Wow64Container = 0x00000004,
+-} MACHINE_ATTRIBUTES;
+-
+-typedef struct _PROCESS_MACHINE_INFORMATION
+-{
+-    USHORT ProcessMachine;
+-    USHORT Res0;
+-    MACHINE_ATTRIBUTES MachineAttributes;
+-} PROCESS_MACHINE_INFORMATION;
+-
+ typedef enum _PROCESS_INFORMATION_CLASS
+ {
+     ProcessMemoryPriority,
+@@ -2288,7 +2274,6 @@ WINBASEAPI BOOL        WINAPI GetLogicalProcessorInformationEx(LOGICAL_PROCESSOR
+ WINBASEAPI DWORD       WINAPI GetProcessHeaps(DWORD,PHANDLE);
+ WINBASEAPI DWORD       WINAPI GetProcessId(HANDLE);
+ WINBASEAPI DWORD       WINAPI GetProcessIdOfThread(HANDLE);
+-WINBASEAPI BOOL        WINAPI GetProcessInformation(HANDLE,PROCESS_INFORMATION_CLASS,void*,DWORD);
+ WINBASEAPI BOOL        WINAPI GetProcessIoCounters(HANDLE,PIO_COUNTERS);
+ WINBASEAPI BOOL        WINAPI GetProcessPriorityBoost(HANDLE,PBOOL);
+ WINBASEAPI BOOL        WINAPI GetProcessShutdownParameters(LPDWORD,LPDWORD);
+-- 
+2.43.0
+

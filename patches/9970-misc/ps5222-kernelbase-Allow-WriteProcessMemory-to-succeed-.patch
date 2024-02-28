@@ -1,0 +1,128 @@
+From 3277cb6c60b755ad2d68ca6287afba14e4d48fbc Mon Sep 17 00:00:00 2001
+From: Marc-Aurel Zent <mzent@codeweavers.com>
+Date: Mon, 4 Mar 2024 11:59:42 +0100
+Subject: [PATCH 1/2] kernelbase: Allow WriteProcessMemory to succeed on
+ PAGE_EXECUTE_READ.
+
+---
+ dlls/kernel32/tests/virtual.c | 13 ++++++++++++
+ dlls/kernelbase/memory.c      | 38 ++++++++++++++++++++++++++++++++++-
+ 2 files changed, 50 insertions(+), 1 deletion(-)
+
+diff --git a/dlls/kernel32/tests/virtual.c b/dlls/kernel32/tests/virtual.c
+index a023104ad88..3c362b60ae3 100644
+--- a/dlls/kernel32/tests/virtual.c
++++ b/dlls/kernel32/tests/virtual.c
+@@ -83,6 +83,8 @@ static void test_VirtualAllocEx(void)
+     DWORD old_prot;
+     MEMORY_BASIC_INFORMATION info;
+     HANDLE hProcess;
++    NTSTATUS status;
++    NTSTATUS (NTAPI *pNtWriteVirtualMemory)(HANDLE, void *, const void *, SIZE_T, SIZE_T *);
+ 
+     /* Same process */
+     addr1 = VirtualAllocEx(GetCurrentProcess(), NULL, alloc_size, MEM_COMMIT, PAGE_EXECUTE_READWRITE);
+@@ -122,6 +124,17 @@ static void test_VirtualAllocEx(void)
+     b = ReadProcessMemory(hProcess, addr1, src, 0, &bytes_read);
+     ok(b && !bytes_read, "read failed: %lu\n", GetLastError());
+ 
++    /* test write to read-only execute region */
++    addr2 = VirtualAllocEx(hProcess, NULL, alloc_size, MEM_COMMIT,
++                           PAGE_EXECUTE_READ);
++    ok(addr2 != NULL, "VirtualAllocEx error %lu\n", GetLastError());
++    b = WriteProcessMemory(hProcess, addr2, src, alloc_size, &bytes_written);
++    ok(b, "WriteProcessMemory should succeed on a PAGE_EXECUTE_READ region. Failed error: %lu\n", GetLastError());
++    pNtWriteVirtualMemory = (NTSTATUS (NTAPI *)(HANDLE, void *, const void *, SIZE_T, SIZE_T *))
++        GetProcAddress(GetModuleHandleW(L"ntdll"), "NtWriteVirtualMemory");
++    status = pNtWriteVirtualMemory(hProcess, addr2, src, alloc_size, &bytes_written);
++    ok(!NT_SUCCESS(status), "Expected NtWriteVirtualMemory to fail on PAGE_EXECUTE_READ, but got status: %lu\n", status);
++
+     /* test invalid source buffers */
+ 
+     b = VirtualProtect( src + 0x2000, 0x2000, PAGE_NOACCESS, &old_prot );
+diff --git a/dlls/kernelbase/memory.c b/dlls/kernelbase/memory.c
+index 4f4bba9a13b..293a3f93dda 100644
+--- a/dlls/kernelbase/memory.c
++++ b/dlls/kernelbase/memory.c
+@@ -537,7 +537,43 @@ BOOL WINAPI DECLSPEC_HOTPATCH VirtualUnlock( void *addr, SIZE_T size )
+ BOOL WINAPI DECLSPEC_HOTPATCH WriteProcessMemory( HANDLE process, void *addr, const void *buffer,
+                                                   SIZE_T size, SIZE_T *bytes_written )
+ {
+-    return set_ntstatus( NtWriteVirtualMemory( process, addr, buffer, size, bytes_written ));
++    NTSTATUS status, protect_status;
++    MEMORY_BASIC_INFORMATION mbi;
++    SIZE_T res_len, region_size = size;
++    ULONG old_prot;
++    void *base_addr = addr;
++
++    status = NtQueryVirtualMemory( process, addr, MemoryBasicInformation, &mbi, sizeof(mbi), &res_len );
++
++    if (!NT_SUCCESS(status)) return set_ntstatus( status );
++
++    if ((mbi.Protect & PAGE_NOACCESS) == PAGE_NOACCESS || 
++        (mbi.Protect & PAGE_READONLY) == PAGE_READONLY)
++        return set_ntstatus( STATUS_ACCESS_VIOLATION );
++
++    if ((mbi.Protect & PAGE_READWRITE) == PAGE_READWRITE ||
++        (mbi.Protect & PAGE_WRITECOPY) == PAGE_WRITECOPY)
++        return set_ntstatus( NtWriteVirtualMemory( process, addr, buffer, size, bytes_written ) );
++
++    if ((mbi.Protect & PAGE_EXECUTE_READWRITE) == PAGE_EXECUTE_READWRITE ||
++        (mbi.Protect & PAGE_EXECUTE_WRITECOPY) == PAGE_EXECUTE_WRITECOPY)
++    {
++        status = NtWriteVirtualMemory( process, addr, buffer, size, bytes_written );
++        return set_ntstatus( status );
++    }
++
++    /* In the non-writeable code region case, Windows changes the protection to facilitate the write
++     * and then changes it back. */
++
++    protect_status = NtProtectVirtualMemory( process, &base_addr, &region_size, PAGE_EXECUTE_READWRITE, &old_prot );
++    if (!NT_SUCCESS(protect_status)) return set_ntstatus( protect_status );
++
++    status = NtWriteVirtualMemory( process, addr, buffer, size, bytes_written );
++
++    protect_status = NtProtectVirtualMemory( process, &base_addr, &region_size, old_prot, &old_prot );
++    if (!NT_SUCCESS(protect_status)) return set_ntstatus( protect_status );
++
++    return set_ntstatus( status );
+ }
+ 
+ 
+-- 
+GitLab
+
+
+From ca1648d7c060071d5e0ff161aa1393f40467bd34 Mon Sep 17 00:00:00 2001
+From: Marc-Aurel Zent <mzent@codeweavers.com>
+Date: Mon, 4 Mar 2024 15:24:27 +0100
+Subject: [PATCH 2/2] kernelbase: Flush instruction cache when necessary in
+ WriteProcessMemory.
+
+---
+ dlls/kernelbase/memory.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/dlls/kernelbase/memory.c b/dlls/kernelbase/memory.c
+index 293a3f93dda..62315d37773 100644
+--- a/dlls/kernelbase/memory.c
++++ b/dlls/kernelbase/memory.c
+@@ -559,6 +559,7 @@ BOOL WINAPI DECLSPEC_HOTPATCH WriteProcessMemory( HANDLE process, void *addr, co
+         (mbi.Protect & PAGE_EXECUTE_WRITECOPY) == PAGE_EXECUTE_WRITECOPY)
+     {
+         status = NtWriteVirtualMemory( process, addr, buffer, size, bytes_written );
++        NtFlushInstructionCache( process, addr, size );
+         return set_ntstatus( status );
+     }
+ 
+@@ -573,6 +574,7 @@ BOOL WINAPI DECLSPEC_HOTPATCH WriteProcessMemory( HANDLE process, void *addr, co
+     protect_status = NtProtectVirtualMemory( process, &base_addr, &region_size, old_prot, &old_prot );
+     if (!NT_SUCCESS(protect_status)) return set_ntstatus( protect_status );
+ 
++    NtFlushInstructionCache( process, addr, size );
+     return set_ntstatus( status );
+ }
+ 
+-- 
+GitLab
+

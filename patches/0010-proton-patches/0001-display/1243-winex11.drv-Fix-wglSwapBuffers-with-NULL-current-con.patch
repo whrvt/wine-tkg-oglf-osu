@@ -1,0 +1,135 @@
+From 4bf230ae4cf44dd2130dfb621ae0e3e8ab4aa9b6 Mon Sep 17 00:00:00 2001
+From: Paul Gofman <pgofman@codeweavers.com>
+Date: Mon, 22 Jan 2024 16:28:32 -0600
+Subject: [PATCH 1243/1306] winex11.drv: Fix wglSwapBuffers() with NULL current
+ context with child window rendering.
+
+(cherry picked from commit eb5993a7c6fbc1cd9deac0dceabc8f1c76e14ba8)
+
+CW-Bug-Id: #23302
+---
+ dlls/opengl32/tests/opengl.c | 52 ++++++++++++++++++++++++++++++++++++
+ dlls/winex11.drv/opengl.c    | 10 +++----
+ 2 files changed, 57 insertions(+), 5 deletions(-)
+
+diff --git a/dlls/opengl32/tests/opengl.c b/dlls/opengl32/tests/opengl.c
+index e3ca82a9b03..74aff6b4bbd 100644
+--- a/dlls/opengl32/tests/opengl.c
++++ b/dlls/opengl32/tests/opengl.c
+@@ -2006,6 +2006,55 @@ static void test_copy_context(HDC hdc)
+     ok(ret, "wglMakeCurrent failed, last error %#lx.\n", GetLastError());
+ }
+ 
++static void test_child_window(HWND hwnd, PIXELFORMATDESCRIPTOR *pfd)
++{
++    int pixel_format;
++    DWORD t1, t;
++    HGLRC hglrc;
++    HWND child;
++    HDC hdc;
++    int res;
++
++    child = CreateWindowA("static", "Title", WS_CHILDWINDOW | WS_VISIBLE, 50, 50, 100, 100, hwnd, NULL, NULL, NULL);
++    ok(!!child, "got error %lu.\n", GetLastError());
++
++    hdc = GetDC(child);
++    pixel_format = ChoosePixelFormat(hdc, pfd);
++    res = SetPixelFormat(hdc, pixel_format, pfd);
++    ok(res, "got error %lu.\n", GetLastError());
++
++    hglrc = wglCreateContext(hdc);
++    ok(!!hglrc, "got error %lu.\n", GetLastError());
++
++    /* Test SwapBuffers with NULL context. */
++
++    glDrawBuffer(GL_BACK);
++
++    /* Currently blit happening for child window in winex11 may not be updated with the latest GL frame
++     * even on glXWaitForSbcOML() path. So simulate continuous present for the test purpose. */
++    trace("Child window rectangle should turn from red to green now.\n");
++    t1 = GetTickCount();
++    while ((t = GetTickCount()) - t1 < 3000)
++    {
++        res = wglMakeCurrent(hdc, hglrc);
++        ok(res, "got error %lu.\n", GetLastError());
++        if (t - t1 > 1500)
++            glClearColor(0.0f, 1.0f, 0.0f, 1.0f);
++        else
++            glClearColor(1.0f, 0.0f, 0.0f, 1.0f);
++        glClear(GL_COLOR_BUFFER_BIT);
++        res = wglMakeCurrent(NULL, NULL);
++        ok(res, "got error %lu.\n", GetLastError());
++        SwapBuffers(hdc);
++    }
++
++    res = wglDeleteContext(hglrc);
++    ok(res, "got error %lu.\n", GetLastError());
++
++    ReleaseDC(child, hdc);
++    DestroyWindow(child);
++}
++
+ START_TEST(opengl)
+ {
+     HWND hwnd;
+@@ -2138,6 +2187,9 @@ START_TEST(opengl)
+         else
+             skip("WGL_EXT_swap_control not supported, skipping test\n");
+ 
++        if (winetest_interactive)
++            test_child_window(hwnd, &pfd);
++
+ cleanup:
+         ReleaseDC(hwnd, hdc);
+         DestroyWindow(hwnd);
+diff --git a/dlls/winex11.drv/opengl.c b/dlls/winex11.drv/opengl.c
+index af404540fde..fde7a9672af 100644
+--- a/dlls/winex11.drv/opengl.c
++++ b/dlls/winex11.drv/opengl.c
+@@ -4894,7 +4894,7 @@ static BOOL glxdrv_wglSwapBuffers( HDC hdc )
+     case DC_GL_PIXMAP_WIN:
+         if (ctx) sync_context( ctx );
+         if (!gl->layered_type) escape.drawable = gl->pixmap;
+-        if (pglXCopySubBufferMESA) {
++        if (ctx && pglXCopySubBufferMESA) {
+             /* (glX)SwapBuffers has an implicit glFlush effect, however
+              * GLX_MESA_copy_sub_buffer doesn't. Make sure GL is flushed before
+              * copying */
+@@ -4903,7 +4903,7 @@ static BOOL glxdrv_wglSwapBuffers( HDC hdc )
+                                    gl->pixmap_size.cx, gl->pixmap_size.cy );
+             break;
+         }
+-        if (pglXSwapBuffersMscOML)
++        if (ctx && pglXSwapBuffersMscOML)
+         {
+             pglFlush();
+             target_sbc = pglXSwapBuffersMscOML( gdi_display, gl->drawable, 0, 0, 0 );
+@@ -4929,7 +4929,7 @@ static BOOL glxdrv_wglSwapBuffers( HDC hdc )
+         if (gl->type == DC_GL_CHILD_WIN && !gl->layered_type) escape.drawable = gl->window;
+         /* fall through */
+     default:
+-        if ((escape.drawable || gl->layered_type) && pglXSwapBuffersMscOML)
++        if (ctx && (escape.drawable || gl->layered_type) && pglXSwapBuffersMscOML)
+         {
+             pglFlush();
+             target_sbc = pglXSwapBuffersMscOML( gdi_display, gl->drawable, 0, 0, 0 );
+@@ -4939,14 +4939,14 @@ static BOOL glxdrv_wglSwapBuffers( HDC hdc )
+         break;
+     }
+ 
+-    if ((escape.drawable || gl->layered_type) && pglXWaitForSbcOML)
++    if (ctx && (escape.drawable || gl->layered_type) && pglXWaitForSbcOML)
+         pglXWaitForSbcOML( gdi_display, gl->drawable, target_sbc, &ust, &msc, &sbc );
+ 
+     update_window_surface( gl, hwnd );
+     release_gl_drawable( gl );
+ 
+     if (escape.drawable)
+-        NtGdiExtEscape( ctx->hdc, NULL, 0, X11DRV_ESCAPE, sizeof(escape), (LPSTR)&escape, 0, NULL );
++        NtGdiExtEscape( ctx ? ctx->hdc : hdc, NULL, 0, X11DRV_ESCAPE, sizeof(escape), (LPSTR)&escape, 0, NULL );
+     return TRUE;
+ }
+ 
+-- 
+2.43.2
+

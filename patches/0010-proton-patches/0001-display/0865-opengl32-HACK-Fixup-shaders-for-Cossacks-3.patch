@@ -1,0 +1,183 @@
+From 0ba8798e30a7f6f9da7b9fd43cc25288b96f784d Mon Sep 17 00:00:00 2001
+From: Paul Gofman <pgofman@codeweavers.com>
+Date: Wed, 22 Jun 2022 10:36:46 -0500
+Subject: [PATCH 0865/1306] opengl32: HACK: Fixup shaders for Cossacks 3.
+
+CW-Bug-Id: #20865
+---
+ dlls/opengl32/make_opengl |  2 +
+ dlls/opengl32/thunks.c    | 18 +-------
+ dlls/opengl32/wgl.c       | 94 +++++++++++++++++++++++++++++++++++++++
+ include/wine/wgl_driver.h |  2 +-
+ 4 files changed, 99 insertions(+), 17 deletions(-)
+
+diff --git a/dlls/opengl32/make_opengl b/dlls/opengl32/make_opengl
+index ec6c7cbe4df..e3727b63923 100755
+--- a/dlls/opengl32/make_opengl
++++ b/dlls/opengl32/make_opengl
+@@ -172,6 +172,8 @@ my %manual_win_thunks =
+      "glMapNamedBufferEXT" => 1,
+      "glMapNamedBufferRange" => 1,
+      "glMapNamedBufferRangeEXT" => 1,
++     "glShaderSource" => 1,
++     "glShaderSourceARB" => 1,
+      "glUnmapBuffer" => 1,
+      "glUnmapBufferARB" => 1,
+      "glUnmapNamedBuffer" => 1,
+diff --git a/dlls/opengl32/thunks.c b/dlls/opengl32/thunks.c
+index c20abdf5488..b0cc3dd83b7 100644
+--- a/dlls/opengl32/thunks.c
++++ b/dlls/opengl32/thunks.c
+@@ -17979,22 +17979,6 @@ static void WINAPI glShaderOp3EXT( GLenum op, GLuint res, GLuint arg1, GLuint ar
+     if ((status = UNIX_CALL( glShaderOp3EXT, &args ))) WARN( "glShaderOp3EXT returned %#lx\n", status );
+ }
+ 
+-static void WINAPI glShaderSource( GLuint shader, GLsizei count, const GLchar *const*string, const GLint *length )
+-{
+-    struct glShaderSource_params args = { .teb = NtCurrentTeb(), .shader = shader, .count = count, .string = string, .length = length };
+-    NTSTATUS status;
+-    TRACE( "shader %d, count %d, string %p, length %p\n", shader, count, string, length );
+-    if ((status = UNIX_CALL( glShaderSource, &args ))) WARN( "glShaderSource returned %#lx\n", status );
+-}
+-
+-static void WINAPI glShaderSourceARB( GLhandleARB shaderObj, GLsizei count, const GLcharARB **string, const GLint *length )
+-{
+-    struct glShaderSourceARB_params args = { .teb = NtCurrentTeb(), .shaderObj = shaderObj, .count = count, .string = string, .length = length };
+-    NTSTATUS status;
+-    TRACE( "shaderObj %d, count %d, string %p, length %p\n", shaderObj, count, string, length );
+-    if ((status = UNIX_CALL( glShaderSourceARB, &args ))) WARN( "glShaderSourceARB returned %#lx\n", status );
+-}
+-
+ static void WINAPI glShaderStorageBlockBinding( GLuint program, GLuint storageBlockIndex, GLuint storageBlockBinding )
+ {
+     struct glShaderStorageBlockBinding_params args = { .teb = NtCurrentTeb(), .program = program, .storageBlockIndex = storageBlockIndex, .storageBlockBinding = storageBlockBinding };
+@@ -24342,6 +24326,8 @@ extern void * WINAPI glMapNamedBuffer( GLuint buffer, GLenum access );
+ extern void * WINAPI glMapNamedBufferEXT( GLuint buffer, GLenum access );
+ extern void * WINAPI glMapNamedBufferRange( GLuint buffer, GLintptr offset, GLsizeiptr length, GLbitfield access );
+ extern void * WINAPI glMapNamedBufferRangeEXT( GLuint buffer, GLintptr offset, GLsizeiptr length, GLbitfield access );
++extern void WINAPI glShaderSource( GLuint shader, GLsizei count, const GLchar *const*string, const GLint *length );
++extern void WINAPI glShaderSourceARB( GLhandleARB shaderObj, GLsizei count, const GLcharARB **string, const GLint *length );
+ extern GLboolean WINAPI glUnmapBuffer( GLenum target );
+ extern GLboolean WINAPI glUnmapBufferARB( GLenum target );
+ extern GLboolean WINAPI glUnmapNamedBuffer( GLuint buffer );
+diff --git a/dlls/opengl32/wgl.c b/dlls/opengl32/wgl.c
+index b3cffa00a3e..7d77296f199 100644
+--- a/dlls/opengl32/wgl.c
++++ b/dlls/opengl32/wgl.c
+@@ -1292,6 +1292,100 @@ static BOOL WINAPI call_opengl_debug_message_callback( struct wine_gl_debug_mess
+     return TRUE;
+ }
+ 
++static char *fixup_shader( GLsizei count, const GLchar *const*string, const GLint *length )
++{
++    static int needs_fixup = -1;
++    static unsigned int once;
++
++    const char add_ext[] = "#version 120\r\n"
++                         "#extension GL_ARB_explicit_uniform_location : enable\r\n"
++                         "#extension GL_ARB_explicit_attrib_location : enable\r\n";
++    const char search_str[] = "uniform mat4 boneMatrices[NBONES];";
++    const char prepend_str[] = "layout(location = 2) ";
++    unsigned int search_len, new_len;
++    const char *p, *next;
++    BOOL found = FALSE;
++    char *new, *out;
++
++    if (needs_fixup == -1)
++    {
++      const char *sgi = getenv("SteamGameId");
++
++      needs_fixup = sgi && !strcmp( sgi, "333420" );
++    }
++
++    if (!needs_fixup) return NULL;
++
++    if (length || count != 1) return NULL;
++
++    if (!once++)
++      FIXME( "HACK: Fixing up shader.\n" );
++
++    TRACE( "Appending extension string.\n" );
++    new_len = strlen( *string ) + sizeof(prepend_str) - 1 + sizeof(add_ext);
++    new = out = malloc( new_len );
++    memcpy( out, add_ext, sizeof(add_ext) - 1 );
++    out += sizeof(add_ext) - 1;
++
++    search_len = sizeof(search_str) - 1;
++    next = *string;
++    while (*(p = next))
++    {
++      while (*next && *next != '\r' && *next != '\n') ++next;
++
++      if (next - p == search_len && !memcmp( p, search_str, search_len ))
++      {
++          TRACE( "Adding explicit location.\n" );
++          memcpy( out, *string, p - *string );
++          out += p - *string;
++          memcpy( out, prepend_str, sizeof(prepend_str) - 1 );
++          out += sizeof(prepend_str) - 1;
++          strcpy( out, p );
++          found = TRUE;
++          break;
++      }
++
++      while (*next == '\n' || *next == '\r') ++next;
++    }
++    if (!found)
++      strcpy( out, *string );
++
++    return new;
++}
++
++void WINAPI glShaderSource( GLuint shader, GLsizei count, const GLchar *const*string, const GLint *length )
++{
++    struct glShaderSource_params args = { .teb = NtCurrentTeb(), .shader = shader, .count = count, .string = string, .length = length };
++    NTSTATUS status;
++    char *new;
++    TRACE( "shader %d, count %d, string %p, length %p\n", shader, count, string, length );
++    if ((new = fixup_shader( count, string, length )))
++    {
++        args.string = (const GLchar **)&new;
++        args.count = 1;
++        args.length = NULL;
++    }
++    if ((status = UNIX_CALL( glShaderSource, &args ))) WARN( "glShaderSource returned %#lx\n", status );
++    free( new );
++}
++
++void WINAPI glShaderSourceARB( GLhandleARB shaderObj, GLsizei count, const GLcharARB **string, const GLint *length )
++{
++    struct glShaderSourceARB_params args = { .teb = NtCurrentTeb(), .shaderObj = shaderObj, .count = count, .string = string, .length = length };
++    NTSTATUS status;
++    char *new;
++    TRACE( "shaderObj %d, count %d, string %p, length %p\n", shaderObj, count, string, length );
++    if ((new = fixup_shader( count, string, length )))
++    {
++        args.string = (const GLcharARB **)&new;
++        args.count = 1;
++        args.length = NULL;
++    }
++    if ((status = UNIX_CALL( glShaderSourceARB, &args ))) WARN( "glShaderSourceARB returned %#lx\n", status );
++    free( new );
++}
++
++
+ /***********************************************************************
+  *           OpenGL initialisation routine
+  */
+diff --git a/include/wine/wgl_driver.h b/include/wine/wgl_driver.h
+index 93ebe7d7f46..0f3ade153f2 100644
+--- a/include/wine/wgl_driver.h
++++ b/include/wine/wgl_driver.h
+@@ -7,7 +7,7 @@
+ #define WINE_GLAPI
+ #endif
+ 
+-#define WINE_WGL_DRIVER_VERSION 23
++#define WINE_WGL_DRIVER_VERSION 24
+ 
+ struct wgl_context;
+ struct wgl_pbuffer;
+-- 
+2.43.2
+

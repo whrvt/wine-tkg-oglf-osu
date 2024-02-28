@@ -48,19 +48,21 @@ makepkg -si
 
 ## Notes on built packages :
 
-Possibly dependant on the compilation flags (found in [config/advanced.cfg](https://github.com/whrvt/wine-tkg-oglf-osu/blob/master/config/advanced.cfg)), the resulting wine binary may only work with a reduced subset of features in certain applications.
+Possibly dependant on the compilation flags (found in [config/advanced.cfg](https://github.com/whrvt/wine-tkg-oglf-osu/blob/master/config/advanced.cfg)), the resulting wine binary may only work with a reduced subset of features in certain applications. It's recommended to only use this build for osu!.
 
-For example: when running osu! stable under a WINEPREFIX which is missing `gdiplus` or `gdiplus_winxp`, wine's built-in version of gdiplus may crash when rendering certain areas of text, like the friends list or skins list. Furthermore, at least on some systems, `dotnet48` may not be usable, while `dotnet40` or `dotnet45` works fine.
+For example: when running osu!stable under a WINEPREFIX which is missing `gdiplus` or `gdiplus_winxp`, wine's built-in version of gdiplus may crash when rendering certain areas of text, like the friends list or skins list. Furthermore, at least on some systems, `dotnet48` may not be usable, while `dotnet40` or `dotnet45` works fine.
 
 On my system, this is an example of a fully working WINEPREFIX (to be used for playing osu! stable) created with [winetricks](https://github.com/Winetricks/winetricks):
 
 ```
-WINE_DISABLE_FAST_SYNC=1 WINEARCH=win64 WINEPREFIX=<PREFIX_DIRECTORY> WINE=/opt/wine-osu/bin/wine winetricks -q nocrashdialog dotnet45 cjkfonts meiryo gdiplus_winxp sound=pulse fontsmooth=rgb win2k3
+WINEARCH=win64 WINEPREFIX=<PREFIX_DIRECTORY> WINE=/opt/wine-osu/bin/wine winetricks -q nocrashdialog dotnet48 cjkfonts meiryo gdiplus_winxp sound=pulse fontsmooth=rgb win2k3
 ```
 
 WINEARCH=win32 is untested.
 
 Some useful environment variables for the resulting wine binary can be found in [wine.install](https://github.com/whrvt/wine-tkg-oglf-osu/blob/master/wine.install).
+
+Also, some error and warning messages can be silenced by overriding `winemenubuilder.exe` in winecfg to `disabled`.
 
 ## Credit :
 

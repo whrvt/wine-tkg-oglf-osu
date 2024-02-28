@@ -1,0 +1,27 @@
+From a6733eafb6eed0659338145f7161a78cf227c558 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?R=C3=A9mi=20Bernon?= <rbernon@codeweavers.com>
+Date: Wed, 24 Jan 2024 19:29:15 +0100
+Subject: [PATCH 1103/1306] winegstreamer: Ask GStreamer to stop messing with
+ signal handlers.
+
+CW-Bug-Id: #23311
+---
+ dlls/winegstreamer/unixlib.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/dlls/winegstreamer/unixlib.c b/dlls/winegstreamer/unixlib.c
+index 93a86d6b8cb..53c1328c0ab 100644
+--- a/dlls/winegstreamer/unixlib.c
++++ b/dlls/winegstreamer/unixlib.c
+@@ -273,6 +273,8 @@ NTSTATUS wg_init_gstreamer(void *arg)
+         setenv("GST_REGISTRY_1_0", gst_reg, 1);
+     }
+ 
++    gst_segtrap_set_enabled(false);
++
+     if (!gst_init_check(&argc, &argv, &err))
+     {
+         fprintf(stderr, "winegstreamer: failed to initialize GStreamer: %s\n", err->message);
+-- 
+2.43.2
+

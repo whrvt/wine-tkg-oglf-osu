@@ -91,13 +91,13 @@ index 11111111111..11111111111 100644
 --- a/dlls/ntdll/unix/unix_private.h
 +++ b/dlls/ntdll/unix/unix_private.h
 @@ -201,6 +201,8 @@ extern unsigned int server_select( const select_op_t *select_op, data_size_t siz
-                                    timeout_t abs_timeout, context_t *context, user_apc_t *user_apc ) DECLSPEC_HIDDEN;
+                                    timeout_t abs_timeout, context_t *context, user_apc_t *user_apc );
  extern unsigned int server_wait( const select_op_t *select_op, data_size_t size, UINT flags,
-                                  const LARGE_INTEGER *timeout ) DECLSPEC_HIDDEN;
+                                  const LARGE_INTEGER *timeout );
 +extern unsigned int server_wait_for_object( HANDLE handle, BOOL alertable,
-+                                            const LARGE_INTEGER *timeout ) DECLSPEC_HIDDEN;
++                                            const LARGE_INTEGER *timeout );
  extern unsigned int server_queue_process_apc( HANDLE process, const apc_call_t *call,
-                                               apc_result_t *result ) DECLSPEC_HIDDEN;
+                                               apc_result_t *result );
  extern int server_get_unix_fd( HANDLE handle, unsigned int wanted_access, int *unix_fd,
 @@ -416,7 +418,7 @@ static inline async_data_t server_async( HANDLE handle, struct async_fileio *use
  

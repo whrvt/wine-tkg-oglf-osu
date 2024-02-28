@@ -1,0 +1,178 @@
+From 04bf877dcb5f315d5aea2fe8864bed2f3be4f92c Mon Sep 17 00:00:00 2001
+From: whrvt <william@horvath.blog>
+Date: Mon, 26 Feb 2024 20:12:41 -0800
+Subject: [PATCH 6/6] Revert "server: Combine HID usage page and usage
+ together."
+
+This reverts commit c62ca2e1aa8f7fe0da906000957dd2af71976af0.
+---
+ dlls/win32u/message.c          |  3 ++-
+ dlls/win32u/rawinput.c         |  3 ++-
+ include/wine/server_protocol.h |  8 +++++---
+ server/protocol.def            |  6 ++++--
+ server/queue.c                 | 11 +++++------
+ server/trace.c                 | 10 +++++-----
+ 6 files changed, 23 insertions(+), 18 deletions(-)
+
+diff --git a/dlls/win32u/message.c b/dlls/win32u/message.c
+index 068f258e103..0cd20684b4e 100644
+--- a/dlls/win32u/message.c
++++ b/dlls/win32u/message.c
+@@ -3555,7 +3555,8 @@ NTSTATUS send_hardware_message( HWND hwnd, const INPUT *input, const RAWINPUT *r
+                 case RIM_TYPEHID:
+                     req->input.hw.rawinput.hid.device = HandleToUlong( rawinput->header.hDevice );
+                     req->input.hw.rawinput.hid.param = rawinput->header.wParam;
+-                    req->input.hw.rawinput.hid.usage = MAKELONG(hid_usage, hid_usage_page);
++                    req->input.hw.rawinput.hid.usage_page = hid_usage_page;
++                    req->input.hw.rawinput.hid.usage = hid_usage;
+                     req->input.hw.rawinput.hid.count = rawinput->data.hid.dwCount;
+                     req->input.hw.rawinput.hid.length = rawinput->data.hid.dwSizeHid;
+                     wine_server_add_data( req, rawinput->data.hid.bRawData,
+diff --git a/dlls/win32u/rawinput.c b/dlls/win32u/rawinput.c
+index 3ea29f2da77..e6c442c6ba6 100644
+--- a/dlls/win32u/rawinput.c
++++ b/dlls/win32u/rawinput.c
+@@ -899,7 +899,8 @@ BOOL WINAPI NtUserRegisterRawInputDevices( const RAWINPUTDEVICE *devices, UINT d
+ 
+     for (i = 0; i < device_count; ++i)
+     {
+-        server_devices[i].usage = MAKELONG(registered_devices[i].usUsage, registered_devices[i].usUsagePage);
++        server_devices[i].usage_page = registered_devices[i].usUsagePage;
++        server_devices[i].usage = registered_devices[i].usUsage;
+         server_devices[i].flags = registered_devices[i].dwFlags;
+         server_devices[i].target = wine_server_user_handle( registered_devices[i].hwndTarget );
+     }
+diff --git a/include/wine/server_protocol.h b/include/wine/server_protocol.h
+index 1d475fdbbfd..e039cf59e72 100644
+--- a/include/wine/server_protocol.h
++++ b/include/wine/server_protocol.h
+@@ -285,7 +285,8 @@ union rawinput
+         int            type;
+         unsigned int   device;
+         unsigned int   param;
+-        unsigned int   usage;
++        unsigned short usage_page;
++        unsigned short usage;
+         unsigned int   count;
+         unsigned int   length;
+     } hid;
+@@ -862,7 +863,8 @@ typedef struct
+ 
+ struct rawinput_device
+ {
+-    unsigned int   usage;
++    unsigned short usage_page;
++    unsigned short usage;
+     unsigned int   flags;
+     user_handle_t  target;
+ };
+# @@ -6505,7 +6507,7 @@ union generic_reply
+ 
+#  /* ### protocol_version begin ### */
+ 
+# -#define SERVER_PROTOCOL_VERSION 789
+# +#define SERVER_PROTOCOL_VERSION 788
+ 
+#  /* ### protocol_version end ### */
+ 
+diff --git a/server/protocol.def b/server/protocol.def
+index d00f037afb9..3c452e08e2a 100644
+--- a/server/protocol.def
++++ b/server/protocol.def
+@@ -301,7 +301,8 @@ union rawinput
+         int            type;    /* RIM_TYPEHID */
+         unsigned int   device;  /* rawinput device index */
+         unsigned int   param;   /* rawinput message param */
+-        unsigned int   usage;   /* HID device usage */
++        unsigned short usage_page;/* HID usage page */
++        unsigned short usage;   /* HID usage */
+         unsigned int   count;   /* HID report count */
+         unsigned int   length;  /* HID report length */
+     } hid;
+@@ -878,7 +879,8 @@ typedef struct
+ 
+ struct rawinput_device
+ {
+-    unsigned int   usage;
++    unsigned short usage_page;
++    unsigned short usage;
+     unsigned int   flags;
+     user_handle_t  target;
+ };
+diff --git a/server/queue.c b/server/queue.c
+index 349ad51e0f6..cd913ae03e5 100644
+--- a/server/queue.c
++++ b/server/queue.c
+@@ -35,7 +35,6 @@
+ #include "winuser.h"
+ #include "winternl.h"
+ #include "ntuser.h"
+-#include "hidusage.h"
+ 
+ #include "handle.h"
+ #include "file.h"
+@@ -1638,13 +1637,13 @@ static user_handle_t find_hardware_message_window( struct desktop *desktop, stru
+     return win;
+ }
+ 
+-static struct rawinput_device *find_rawinput_device( struct process *process, unsigned int usage )
++static struct rawinput_device *find_rawinput_device( struct process *process, unsigned short usage_page, unsigned short usage )
+ {
+     struct rawinput_device *device, *end;
+ 
+     for (device = process->rawinput_devices, end = device + process->rawinput_device_count; device != end; device++)
+     {
+-        if (device->usage != usage) continue;
++        if (device->usage_page != usage_page || device->usage != usage) continue;
+         return device;
+     }
+ 
+@@ -1809,7 +1808,7 @@ static int queue_rawinput_message( struct process* process, void *arg )
+     else if (raw_msg->data.rawinput.type == RIM_TYPEKEYBOARD)
+         device = process->rawinput_kbd;
+     else
+-        device = find_rawinput_device( process, raw_msg->data.rawinput.hid.usage );
++        device = find_rawinput_device( process, raw_msg->data.rawinput.hid.usage_page, raw_msg->data.rawinput.hid.usage );
+     if (!device) return 0;
+ 
+     if (raw_msg->message == WM_INPUT_DEVICE_CHANGE && !(device->flags & RIDEV_DEVNOTIFY)) return 0;
+@@ -3506,6 +3505,6 @@ DECL_HANDLER(update_rawinput_devices)
+     process->rawinput_device_count = device_count;
+     memcpy( process->rawinput_devices, devices, size );
+ 
+-    process->rawinput_mouse = find_rawinput_device( process, MAKELONG(HID_USAGE_GENERIC_MOUSE, HID_USAGE_PAGE_GENERIC) );
+-    process->rawinput_kbd = find_rawinput_device( process, MAKELONG(HID_USAGE_GENERIC_KEYBOARD, HID_USAGE_PAGE_GENERIC) );
++    process->rawinput_mouse = find_rawinput_device( process, 1, 2 );
++    process->rawinput_kbd = find_rawinput_device( process, 1, 6 );
+ }
+diff --git a/server/trace.c b/server/trace.c
+index ccb251cbc4b..a29041031df 100644
+--- a/server/trace.c
++++ b/server/trace.c
+@@ -434,9 +434,9 @@ static void dump_rawinput( const char *prefix, const union rawinput *rawinput )
+                  rawinput->kbd.message, rawinput->kbd.vkey, rawinput->kbd.scan );
+         break;
+     case RIM_TYPEHID:
+-        fprintf( stderr, "%s{type=HID,device=%04x,param=%04x,usage=%04x:%04x,count=%u,length=%u}",
+-                 prefix, rawinput->hid.device, rawinput->hid.param, HIWORD(rawinput->hid.usage),
+-                 LOWORD(rawinput->hid.usage), rawinput->hid.count, rawinput->hid.length );
++        fprintf( stderr, "%s{type=HID,device=%04x,param=%04x,page=%04hx,usage=%04hx,count=%u,length=%u}",
++                 prefix, rawinput->hid.device, rawinput->hid.param, rawinput->hid.usage_page,
++                 rawinput->hid.usage, rawinput->hid.count, rawinput->hid.length );
+         break;
+     default:
+         fprintf( stderr, "%s{type=%04x}", prefix, rawinput->type );
+@@ -1357,8 +1357,8 @@ static void dump_varargs_rawinput_devices(const char *prefix, data_size_t size )
+     while (size >= sizeof(*device))
+     {
+         device = cur_data;
+-        fprintf( stderr, "{usage=%08x,flags=%08x,target=%08x}",
+-                 device->usage, device->flags, device->target );
++        fprintf( stderr, "{usage_page=%04x,usage=%04x,flags=%08x,target=%08x}",
++                 device->usage_page, device->usage, device->flags, device->target );
+         size -= sizeof(*device);
+         remove_data( sizeof(*device) );
+         if (size) fputc( ',', stderr );
+-- 
+2.43.2
+

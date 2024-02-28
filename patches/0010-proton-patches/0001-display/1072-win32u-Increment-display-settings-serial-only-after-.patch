@@ -1,0 +1,115 @@
+From f53a4cc8ef8d465d6478d27172bcbf8a32eb7d37 Mon Sep 17 00:00:00 2001
+From: Torge Matthies <tmatthies@codeweavers.com>
+Date: Wed, 8 Nov 2023 13:03:53 +0100
+Subject: [PATCH 1072/1306] win32u: Increment display settings serial only
+ after writing new settings to registry.
+
+Otherwise another process can update its display cache from the registry before the new settings have been written.
+
+Fix a regression from 43686b14.
+
+CW-Bug-Id: #22124
+CW-Bug-Id: #23173
+---
+ dlls/win32u/sysparams.c      | 13 +++++++------
+ dlls/win32u/win32u_private.h |  2 +-
+ dlls/win32u/winstation.c     |  4 ++--
+ 3 files changed, 10 insertions(+), 9 deletions(-)
+
+diff --git a/dlls/win32u/sysparams.c b/dlls/win32u/sysparams.c
+index 84fc7418b62..d505bde85f3 100644
+--- a/dlls/win32u/sysparams.c
++++ b/dlls/win32u/sysparams.c
+@@ -2037,7 +2037,7 @@ static BOOL desktop_update_display_devices( BOOL force, struct device_manager_ct
+     return TRUE;
+ }
+ 
+-BOOL update_display_cache( BOOL force )
++BOOL update_display_cache( BOOL force, BOOL increment_serial )
+ {
+     static const WCHAR wine_service_station_name[] =
+         {'_','_','w','i','n','e','s','e','r','v','i','c','e','_','w','i','n','s','t','a','t','i','o','n',0};
+@@ -2084,6 +2084,9 @@ BOOL update_display_cache( BOOL force )
+     release_display_manager_ctx( &ctx );
+     if (!ret) WARN( "Failed to update display devices\n" );
+ 
++    if (increment_serial && global_shared)
++        global_serial = InterlockedIncrement( (LONG *)&global_shared->display_settings_serial );
++
+     if (!update_display_cache_from_registry())
+     {
+         if (force)
+@@ -2098,7 +2101,7 @@ BOOL update_display_cache( BOOL force )
+             return FALSE;
+         }
+ 
+-        return update_display_cache( TRUE );
++        return update_display_cache( TRUE, FALSE );
+     }
+ 
+     InterlockedCompareExchange( (LONG *)&last_update_serial, global_serial, current_serial );
+@@ -2107,7 +2110,7 @@ BOOL update_display_cache( BOOL force )
+ 
+ static BOOL lock_display_devices(void)
+ {
+-    if (!update_display_cache( FALSE )) return FALSE;
++    if (!update_display_cache( FALSE, FALSE )) return FALSE;
+     pthread_mutex_lock( &display_lock );
+     return TRUE;
+ }
+@@ -3180,7 +3183,6 @@ static BOOL all_detached_settings( const DEVMODEW *displays )
+ static LONG apply_display_settings( const WCHAR *devname, const DEVMODEW *devmode,
+                                     HWND hwnd, DWORD flags, void *lparam )
+ {
+-    volatile struct global_shared_memory *global_shared = get_global_shared_memory();
+     WCHAR primary_name[CCHDEVICENAME];
+     struct display_device *primary;
+     DEVMODEW *mode, *displays;
+@@ -3228,8 +3230,7 @@ static LONG apply_display_settings( const WCHAR *devname, const DEVMODEW *devmod
+     free( displays );
+     if (ret) return ret;
+ 
+-    if (global_shared) InterlockedIncrement( (LONG *)&global_shared->display_settings_serial );
+-    if (!update_display_cache( TRUE ))
++    if (!update_display_cache( TRUE, TRUE ))
+         WARN( "Failed to update display cache after mode change.\n" );
+ 
+     if ((adapter = find_adapter( NULL )))
+diff --git a/dlls/win32u/win32u_private.h b/dlls/win32u/win32u_private.h
+index d0eb4a7acaf..a5d2a196932 100644
+--- a/dlls/win32u/win32u_private.h
++++ b/dlls/win32u/win32u_private.h
+@@ -191,7 +191,7 @@ extern RECT rect_thread_to_win_dpi( HWND hwnd, RECT rect );
+ extern HMONITOR monitor_from_point( POINT pt, UINT flags, UINT dpi );
+ extern HMONITOR monitor_from_rect( const RECT *rect, UINT flags, UINT dpi );
+ extern HMONITOR monitor_from_window( HWND hwnd, UINT flags, UINT dpi );
+-extern BOOL update_display_cache( BOOL force );
++extern BOOL update_display_cache( BOOL force, BOOL increment_serial );
+ extern void user_lock(void);
+ extern void user_unlock(void);
+ extern void user_check_not_lock(void);
+diff --git a/dlls/win32u/winstation.c b/dlls/win32u/winstation.c
+index 1bca929d157..2887e104c4a 100644
+--- a/dlls/win32u/winstation.c
++++ b/dlls/win32u/winstation.c
+@@ -184,7 +184,7 @@ HDESK WINAPI NtUserCreateDesktopEx( OBJECT_ATTRIBUTES *attr, UNICODE_STRING *dev
+     }
+ 
+     /* force update display cache to use virtual desktop display settings */
+-    if (flags & DF_WINE_VIRTUAL_DESKTOP) update_display_cache( TRUE );
++    if (flags & DF_WINE_VIRTUAL_DESKTOP) update_display_cache( TRUE, TRUE );
+     return ret;
+ }
+ 
+@@ -262,7 +262,7 @@ BOOL WINAPI NtUserSetThreadDesktop( HDESK handle )
+             NtUnmapViewOfSection( GetCurrentProcess(), thread_info->desktop_shared_memory );
+             thread_info->desktop_shared_memory = NULL;
+         }
+-        if (was_virtual_desktop != is_virtual_desktop()) update_display_cache( TRUE );
++        if (was_virtual_desktop != is_virtual_desktop()) update_display_cache( TRUE, TRUE );
+     }
+     return ret;
+ }
+-- 
+2.43.2
+

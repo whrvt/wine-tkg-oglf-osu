@@ -66,15 +66,15 @@ index 11111111111..11111111111 100644
 +++ b/dlls/win32u/ntgdi_private.h
 @@ -372,6 +372,10 @@ extern BOOL opentype_enum_full_names( const struct tt_name_v0 *tt_name_v0,
  extern BOOL opentype_get_properties( const void *data, size_t size, const struct ttc_sfnt_v1 *ttc_sfnt_v1,
-                                      DWORD *version, FONTSIGNATURE *fs, DWORD *ntm_flags ) DECLSPEC_HIDDEN;
+                                      DWORD *version, FONTSIGNATURE *fs, DWORD *ntm_flags );
  
 +extern BOOL winfnt_parse_font_face( const void *data, size_t size, DWORD index, DWORD *count,
 +                                    const char **family_name, const char **style_name, FONTSIGNATURE *fs, DWORD *ntm_flags,
-+                                    WORD *width, WORD *height, WORD *points, WORD *ppem, WORD *in_leading ) DECLSPEC_HIDDEN;
++                                    WORD *width, WORD *height, WORD *points, WORD *ppem, WORD *in_leading );
 +
  /* gdiobj.c */
  extern HGDIOBJ alloc_gdi_handle( struct gdi_obj_header *obj, DWORD type,
-                                  const struct gdi_obj_funcs *funcs ) DECLSPEC_HIDDEN;
+                                  const struct gdi_obj_funcs *funcs );
 diff --git a/dlls/win32u/opentype.c b/dlls/win32u/opentype.c
 index 11111111111..11111111111 100644
 --- a/dlls/win32u/opentype.c

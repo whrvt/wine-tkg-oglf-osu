@@ -1,0 +1,83 @@
+From f9deb4538a93bd762c051eb60c0587b5229b4727 Mon Sep 17 00:00:00 2001
+From: whrvt <william@horvath.blog>
+Date: Mon, 26 Feb 2024 20:02:42 -0800
+Subject: [PATCH 1/4] Revert "winex11: Simplify XInput2 device valuator
+ lookup."
+
+This reverts commit 165830c317b63999ee7e32b58c73599591a65610.
+---
+ dlls/winex11.drv/mouse.c       | 21 +++++++++++----------
+ dlls/winex11.drv/x11drv.h      |  2 ++
+ dlls/winex11.drv/x11drv_main.c |  2 ++
+ 3 files changed, 15 insertions(+), 10 deletions(-)
+
+diff --git a/dlls/winex11.drv/mouse.c b/dlls/winex11.drv/mouse.c
+index bdbd559b107..143837adede 100644
+--- a/dlls/winex11.drv/mouse.c
++++ b/dlls/winex11.drv/mouse.c
+@@ -228,25 +228,26 @@ void set_window_cursor( Window window, HCURSOR handle )
+ /***********************************************************************
+  *              update_relative_valuators
+  */
+-static void update_relative_valuators( XIAnyClassInfo **classes, int num_classes )
++static void update_relative_valuators(XIAnyClassInfo **valuators, int n_valuators)
+ {
+     struct x11drv_thread_data *thread_data = x11drv_thread_data();
+-    XIValuatorClassInfo *valuator;
++    int i;
+ 
+     thread_data->x_valuator.number = -1;
+     thread_data->y_valuator.number = -1;
+ 
+-    while (num_classes--)
++    for (i = 0; i < n_valuators; i++)
+     {
+-        valuator = (XIValuatorClassInfo *)classes[num_classes];
+-        if (classes[num_classes]->type != XIValuatorClass) continue;
+-        if (valuator->number == 0 && valuator->mode == XIModeRelative) thread_data->x_valuator = *valuator;
+-        if (valuator->number == 1 && valuator->mode == XIModeRelative) thread_data->y_valuator = *valuator;
++        XIValuatorClassInfo *class = (XIValuatorClassInfo *)valuators[i];
++        if (valuators[i]->type != XIValuatorClass) continue;
++        if (class->label == x11drv_atom( Rel_X ) ||
++            (!class->label && class->number == 0 && class->mode == XIModeRelative))
++            thread_data->x_valuator = *class;
++        else if (class->label == x11drv_atom( Rel_Y ) ||
++                 (!class->label && class->number == 1 && class->mode == XIModeRelative))
++            thread_data->y_valuator = *class;
+     }
+ 
+-    if (thread_data->x_valuator.number < 0 || thread_data->y_valuator.number < 0)
+-        WARN( "X/Y axis valuators not found, ignoring RawMotion events\n" );
+-
+     thread_data->x_valuator.value = 0;
+     thread_data->y_valuator.value = 0;
+ }
+diff --git a/dlls/winex11.drv/x11drv.h b/dlls/winex11.drv/x11drv.h
+index 9c1b8012466..aad268d0357 100644
+--- a/dlls/winex11.drv/x11drv.h
++++ b/dlls/winex11.drv/x11drv.h
+@@ -471,6 +471,8 @@ enum x11drv_atoms
+     XATOM_RAW_ASCENT,
+     XATOM_RAW_DESCENT,
+     XATOM_RAW_CAP_HEIGHT,
++    XATOM_Rel_X,
++    XATOM_Rel_Y,
+     XATOM_WM_PROTOCOLS,
+     XATOM_WM_DELETE_WINDOW,
+     XATOM_WM_STATE,
+diff --git a/dlls/winex11.drv/x11drv_main.c b/dlls/winex11.drv/x11drv_main.c
+index 0925fe54b9c..097dd9c3dc8 100644
+--- a/dlls/winex11.drv/x11drv_main.c
++++ b/dlls/winex11.drv/x11drv_main.c
+@@ -142,6 +142,8 @@ static const char * const atom_names[NB_XATOMS - FIRST_XATOM] =
+     "RAW_ASCENT",
+     "RAW_DESCENT",
+     "RAW_CAP_HEIGHT",
++    "Rel X",
++    "Rel Y",
+     "WM_PROTOCOLS",
+     "WM_DELETE_WINDOW",
+     "WM_STATE",
+-- 
+2.43.2
+

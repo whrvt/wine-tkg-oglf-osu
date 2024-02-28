@@ -1,0 +1,141 @@
+From 36b6638c2999e6b70907631f05f4e992190ebbf0 Mon Sep 17 00:00:00 2001
+From: whrvt <william@horvath.blog>
+Date: Mon, 26 Feb 2024 20:02:42 -0800
+Subject: [PATCH 4/4] Revert "winex11: Advertise XInput2 version 2.2 support."
+
+This reverts commit 1a757a0146ef9cb7d7b1e6b6a4345d4c592a46b8.
+---
+ dlls/winex11.drv/mouse.c  | 50 ++++++++++++++++++++++++++++++++-------
+ dlls/winex11.drv/x11drv.h |  5 +++-
+ 2 files changed, 46 insertions(+), 9 deletions(-)
+
+diff --git a/dlls/winex11.drv/mouse.c b/dlls/winex11.drv/mouse.c
+index f02ca5355c5..612fff9995c 100644
+--- a/dlls/winex11.drv/mouse.c
++++ b/dlls/winex11.drv/mouse.c
+@@ -268,7 +268,7 @@ static void enable_xinput2(void)
+ 
+     if (data->xi2_state == xi_unknown)
+     {
+-        int major = 2, minor = 2;
++        int major = 2, minor = 0;
+         if (!pXIQueryVersion( data->display, &major, &minor )) data->xi2_state = xi_disabled;
+         else
+         {
+@@ -277,11 +277,11 @@ static void enable_xinput2(void)
+         }
+     }
+     if (data->xi2_state == xi_unavailable) return;
+-    if (!pXIGetClientPointer( data->display, None, &data->xinput2_pointer )) return;
++    if (!pXIGetClientPointer( data->display, None, &data->xi2_core_pointer )) return;
+ 
+     mask.mask     = mask_bits;
+     mask.mask_len = sizeof(mask_bits);
+-    mask.deviceid = XIAllMasterDevices;
++    mask.deviceid = XIAllDevices;
+     memset( mask_bits, 0, sizeof(mask_bits) );
+     XISetMask( mask_bits, XI_DeviceChanged );
+     XISetMask( mask_bits, XI_RawMotion );
+@@ -289,10 +289,20 @@ static void enable_xinput2(void)
+ 
+     pXISelectEvents( data->display, DefaultRootWindow( data->display ), &mask, 1 );
+ 
+-    pointer_info = pXIQueryDevice( data->display, data->xinput2_pointer, &count );
++    pointer_info = pXIQueryDevice( data->display, data->xi2_core_pointer, &count );
+     update_relative_valuators( pointer_info->classes, pointer_info->num_classes );
+     pXIFreeDeviceInfo( pointer_info );
+ 
++    /* This device info list is only used to find the initial current slave if
++     * no XI_DeviceChanged events happened. If any hierarchy change occurred that
++     * might be relevant here (eg. user switching mice after (un)plugging), a
++     * XI_DeviceChanged event will point us to the right slave. So this list is
++     * safe to be obtained statically at enable_xinput2() time.
++     */
++    if (data->xi2_devices) pXIFreeDeviceInfo( data->xi2_devices );
++    data->xi2_devices = pXIQueryDevice( data->display, XIAllDevices, &data->xi2_device_count );
++    data->xi2_current_slave = 0;
++
+     data->xi2_state = xi_enabled;
+ }
+ 
+@@ -314,14 +324,17 @@ static void disable_xinput2(void)
+ 
+     mask.mask = NULL;
+     mask.mask_len = 0;
+-    mask.deviceid = XIAllMasterDevices;
++    mask.deviceid = XIAllDevices;
+ 
+     pXISelectEvents( data->display, DefaultRootWindow( data->display ), &mask, 1 );
++    pXIFreeDeviceInfo( data->xi2_devices );
+     data->x_valuator.number = -1;
+     data->y_valuator.number = -1;
+     data->x_valuator.value = 0;
+     data->y_valuator.value = 0;
+-    data->xinput2_pointer = 0;
++    data->xi2_devices = NULL;
++    data->xi2_core_pointer = 0;
++    data->xi2_current_slave = 0;
+ #endif
+ }
+ 
+@@ -1630,8 +1643,11 @@ static BOOL X11DRV_DeviceChanged( XGenericEventCookie *xev )
+     XIDeviceChangedEvent *event = xev->data;
+     struct x11drv_thread_data *data = x11drv_thread_data();
+ 
+-    if (event->deviceid != data->xinput2_pointer) return FALSE;
++    if (event->deviceid != data->xi2_core_pointer) return FALSE;
++    if (event->reason != XISlaveSwitch) return FALSE;
++
+     update_relative_valuators( event->classes, event->num_classes );
++    data->xi2_current_slave = event->sourceid;
+     return TRUE;
+ }
+ 
+@@ -1647,7 +1663,25 @@ static BOOL map_raw_event_coords( XIRawEvent *event, INPUT *input )
+     if (x->number < 0 || y->number < 0) return FALSE;
+     if (!event->valuators.mask_len) return FALSE;
+     if (thread_data->xi2_state != xi_enabled) return FALSE;
+-    if (event->deviceid != thread_data->xinput2_pointer) return FALSE;
++
++    /* If there is no slave currently detected, no previous motion nor device
++     * change events were received. Look it up now on the device list in this
++     * case.
++     */
++    if (!thread_data->xi2_current_slave)
++    {
++        XIDeviceInfo *devices = thread_data->xi2_devices;
++
++        for (i = 0; i < thread_data->xi2_device_count; i++)
++        {
++            if (devices[i].use != XISlavePointer) continue;
++            if (devices[i].deviceid != event->deviceid) continue;
++            if (devices[i].attachment != thread_data->xi2_core_pointer) continue;
++            thread_data->xi2_current_slave = event->deviceid;
++            break;
++        }
++    }
++    if (event->deviceid != thread_data->xi2_current_slave) return FALSE;
+ 
+     virtual_rect = NtUserGetVirtualScreenRect();
+ 
+diff --git a/dlls/winex11.drv/x11drv.h b/dlls/winex11.drv/x11drv.h
+index 60dd4c2a7f5..8dde881593b 100644
+--- a/dlls/winex11.drv/x11drv.h
++++ b/dlls/winex11.drv/x11drv.h
+@@ -394,9 +394,12 @@ struct x11drv_thread_data
+     BOOL     clipping_cursor;      /* whether thread is currently clipping the cursor */
+ #ifdef HAVE_X11_EXTENSIONS_XINPUT2_H
+     enum { xi_unavailable = -1, xi_unknown, xi_disabled, xi_enabled } xi2_state; /* XInput2 state */
++    void    *xi2_devices;          /* list of XInput2 devices (valid when state is enabled) */
++    int      xi2_device_count;
+     XIValuatorClassInfo x_valuator;
+     XIValuatorClassInfo y_valuator;
+-    int      xinput2_pointer;      /* XInput2 master pointer device id */
++    int      xi2_core_pointer;     /* XInput2 core pointer id */
++    int      xi2_current_slave;    /* Current slave driving the Core pointer */
+ #endif /* HAVE_X11_EXTENSIONS_XINPUT2_H */
+ };
+ 
+-- 
+2.43.2
+
